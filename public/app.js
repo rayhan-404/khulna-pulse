@@ -161,7 +161,7 @@ async function initSupabase() {
 setInterval(() => {
   hotspotsData.forEach(h => h.minsAgo = getMinsAgo(h.created_at));
   reportsData.forEach(r => r.minsAgo = getMinsAgo(r.created_at));
-  if (currentPage === 'home') renderSheetContent();
+  if (['map','hotspot','latest'].includes(currentPage)) renderSheetContent();
 }, 30000);
 
 // ===== SUPABASE WRITE FUNCTIONS =====
@@ -275,17 +275,27 @@ setInterval(updateClock, 1000);
 updateClock();
 
 // ===== PAGE ROUTING =====
-let currentPage = 'home';
+let currentPage = 'map';
 
 function goPage(page) {
-  if (currentPage === page) return;
   currentPage = page;
   $$('.page').forEach(p => p.classList.remove('active'));
-  $(`#page-${page}`).classList.add('active');
   $$('.bnav-item').forEach(b => b.classList.toggle('active', b.dataset.page === page));
-  if (page === 'home')   initMap();
-  if (page === 'report') initReport();
-  if (page === 'admin')  renderAdmin();
+  if (page === 'map' || page === 'hotspot' || page === 'latest') {
+    $(`#page-home`).classList.add('active');
+    initMap();
+    const sheet = $('#bottom-sheet');
+    if (page === 'map') {
+      sheet.style.height = '0px'; sheet.style.display = 'none';
+    } else {
+      sheet.style.display = 'flex';
+      sheetTab = (page === 'hotspot') ? 'now' : 'reports';
+      renderSheetContent();
+      setTimeout(() => setSheetH(420), 50);
+    }
+  }
+  if (page === 'report') { $(`#page-report`).classList.add('active'); initReport(); }
+  if (page === 'admin')  { $(`#page-admin`).classList.add('active'); renderAdmin(); }
 }
 
 $$('#bottom-nav .bnav-item').forEach(b =>
@@ -933,7 +943,9 @@ $('#btn-refresh').addEventListener('click', async () => {
 let sheetH = 180, dragging = false, dragY0 = 0, dragH0 = 0;
 const sheetEl = $('#bottom-sheet');
 function setSheetH(h) { h = Math.max(180, Math.min(520, h)); sheetH = h; sheetEl.style.height = h + 'px'; }
-setSheetH(180);
+// Sheet hidden by default (map is the initial page)
+sheetEl.style.display = 'none';
+sheetEl.style.height = '0px';
 
 $('#sheet-handle').addEventListener('touchstart', e => { dragging = true; dragY0 = e.touches[0].clientY; dragH0 = sheetH; sheetEl.style.transition = 'none'; }, { passive:true });
 $('#sheet-handle').addEventListener('touchmove', e => { if (!dragging) return; setSheetH(dragH0 + (dragY0 - e.touches[0].clientY)); }, { passive:true });
@@ -955,17 +967,9 @@ function snapSheet() {
   setTimeout(() => sheetEl.style.transition = '', 400);
 }
 
-// ===== SHEET TABS =====
+// ===== SHEET CONTENT =====
 let sheetTab = 'now';
-$$('#sheet-tabs .sheet-tab').forEach(b => {
-  b.addEventListener('click', () => {
-    sheetTab = b.dataset.tab;
-    $$('#sheet-tabs .sheet-tab').forEach(x => x.classList.toggle('active', x.dataset.tab === sheetTab));
-    renderSheetContent();
-  });
-});
 
-// ===== SKELETON =====
 function showSkeleton() {
   const c = $('#sheet-content');
   c.innerHTML = `
@@ -1032,10 +1036,9 @@ function sevBadge(sev) {
 // ===== SHEET CONTENT =====
 function renderSheetContent() {
   const c = $('#sheet-content');
-  if (!c) return;
-  if      (sheetTab === 'now')     renderNowTab(c);
-  else if (sheetTab === 'route')   renderRouteTab(c);
-  else                             renderReportsTab(c);
+  if (!c || !c.parentElement || c.parentElement.style.display === 'none') return;
+  if (sheetTab === 'now') renderNowTab(c);
+  else renderReportsTab(c);
 }
 
 function getFiltered() {
@@ -1177,8 +1180,8 @@ function renderReportsTab(c) {
   </div>`;
 }
 
-showSkeleton();
-setTimeout(renderSheetContent, 900);
+// Initial skeleton — rendered when hotspot/latest tab is opened
+// showSkeleton(); setTimeout(renderSheetContent, 900);
 
 // ===== REPORT WIZARD =====
 const WIZARD_STEPS = ['ধরন', 'অবস্থান', 'বিবরণ'];
