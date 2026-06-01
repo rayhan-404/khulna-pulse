@@ -468,12 +468,23 @@ function createInfoWindowHTML(h) {
 // ===== GOOGLE PLACES AUTOCOMPLETE =====
 let placesService = null;
 let autocompleteService = null;
+let placesAvailable = false;
 function initPlacesServices() {
   try {
     if (google && google.maps && google.maps.places) {
       autocompleteService = new google.maps.places.AutocompleteService();
       placesService = new google.maps.places.PlacesService(map);
-      console.log('[Search] Google Places services ready');
+      // Test if the API actually works by doing a test query
+      autocompleteService.getPlacePredictions({ input: 'test' }, (pred, status) => {
+        if (status === 'OK' || status === 'ZERO_RESULTS') {
+          placesAvailable = true;
+          console.log('[Search] Google Places services ready');
+        } else {
+          console.warn('[Search] Places API not activated, using local search only');
+          autocompleteService = null;
+          placesService = null;
+        }
+      });
     }
   } catch (e) {
     console.warn('[Search] Places API not available:', e);
@@ -481,6 +492,21 @@ function initPlacesServices() {
 }
 
 // ===== SEARCH AUTOCOMPLETE =====
+
+// All searchable places (Bengali + English aliases for broader search coverage)
+const ALL_SEARCHABLE = [
+  ...Object.keys(KNOWN_PLACES),
+  'Boyra More', 'Sonadanga Bus Stand', 'Rupsha Ghat', 'KDA Avenue',
+  'Shib Bari More', 'Kazir Dewri', 'Khalishpur More', 'Dakbanglo More',
+  'Asadganj', 'Halishahar', 'Daulatpur',
+  'Khulna University', 'KU', 'BL College', 'Khulna Medical College',
+  'Khulna Railway Station', 'Khulna Launch Terminal', 'Khulna City',
+  'Jhenaidah Road', 'Jessore Road', 'Satkhira Road', 'Bagerhat Road',
+  'Nawapara Industrial Area', 'Eastern Housing', 'Shantinagar',
+  'Gollamari', 'Moylapota', 'Ghona Bazar', 'New Market', 'Aparupa Market',
+  'City Bypass Road', 'BISMILLAH Shopping Complex', 'Khulna Divisional Stadium',
+];
+
 const searchInput    = $('#search-input');
 const searchDropdown = $('#search-dropdown');
 const searchClear    = $('#search-clear');
@@ -559,10 +585,16 @@ searchInput.addEventListener('input', () => {
     searchClear.style.display = q ? 'block' : 'none';
     if (!q) { searchDropdown.classList.remove('show'); return; }
 
-    // Local results (suggestions + live hotspots)
+    // Local results (known places + suggestions + live hotspots)
     const localResults = [
-      ...SUGGESTIONS
+      ...ALL_SEARCHABLE
         .filter(s => s.toLowerCase().includes(q))
+        .map(s => {
+          const p = KNOWN_PLACES[s];
+          return { text: s, sub: '', live: false, lat: p.lat, lng: p.lng };
+        }),
+      ...SUGGESTIONS
+        .filter(s => !ALL_SEARCHABLE.includes(s) && s.toLowerCase().includes(q))
         .map(s => ({
           text:s, sub:'', live:false,
           ...(KNOWN_PLACES[s] || {})
@@ -577,10 +609,10 @@ searchInput.addEventListener('input', () => {
       renderSearchResults(localResults.slice(0, 6));
     }
 
-    // Also search Google Places for more results
-    if (autocompleteService && map) {
+    // Also search Google Places for more results (if available)
+    if (autocompleteService && map && placesAvailable) {
       autocompleteService.getPlacePredictions(
-        { input: searchInput.value.trim(), location: map.getCenter(), radius: 50000 },
+        { input: searchInput.value.trim(), locationBias: { center: map.getCenter(), radius: 50000 } },
         (predictions, status) => {
           if (status !== 'OK' || !predictions) return;
           const gResults = predictions.slice(0, 5).map(p => ({
