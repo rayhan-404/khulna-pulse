@@ -121,11 +121,10 @@ async function initSupabase() {
       nextId = maxRow.id + 1;
     }
 
-    // Set up real-time subscription
-    supabaseClient
-      .channel('reports-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'reports' }, async () => {
-        console.log('Real-time: reports table changed, refreshing...');
+    // Set up polling for real-time sync (every 15 seconds)
+    setInterval(async () => {
+      if (!supabaseReady) return;
+      try {
         const { data: hs } = await supabaseClient
           .from('reports')
           .select('*')
@@ -144,13 +143,13 @@ async function initSupabase() {
           reportsData = rs.map(d => ({ ...d, minsAgo: getMinsAgo(d.created_at) }));
           if (adminLoggedIn) renderAdminDashboard();
         }
-      })
-      .subscribe((status) => {
-        console.log('Real-time subscription status:', status);
-      });
+      } catch (e) {
+        // Silent fail for polling
+      }
+    }, 15000);
 
     supabaseReady = true;
-    console.log('Supabase real-time sync active! Ready for reads/writes.');
+    console.log('Supabase sync active! Polling every 15s.');
   } catch (err) {
     console.error('Supabase init failed:', err);
   }
@@ -1236,30 +1235,41 @@ window.closeSuccess = function() {
 // ===== ADMIN (Google Auth via Supabase) =====
 let adminLoggedIn = false;
 
-supabaseClient.auth.onAuthStateChange((event, session) => {
-  const user = session?.user;
-  if (user) {
-    currentUser = { displayName: user.user_metadata?.full_name || user.user_metadata?.name || user.email, email: user.email, photoURL: user.user_metadata?.avatar_url };
-    MY_USER_ID = getMyUserId();
-    updateUserSignInUI(currentUser);
-    if (ADMIN_EMAILS.includes(user.email)) {
-      adminLoggedIn = true;
-      $('#admin-login').style.display = 'none';
-      $('#admin-dashboard').style.display = 'flex';
-      const avatar = $('#admin-avatar');
-      const nameEl = $('#admin-name');
-      if (avatar && currentUser.photoURL) { avatar.src = currentUser.photoURL; avatar.style.display = 'block'; }
-      if (nameEl) { nameEl.textContent = currentUser.displayName || currentUser.email; nameEl.style.display = 'block'; }
-      renderAdminDashboard();
+// Check for existing session on load (from OAuth callback)
+(function checkExistingSession() {
+  try {
+    const raw = localStorage.getItem('kp_supabase_session');
+    if (raw) {
+      const session = JSON.parse(raw);
+      const user = session?.user || session;
+      if (user && user.email) {
+        currentUser = { displayName: user.user_metadata?.full_name || user.user_metadata?.name || user.email, email: user.email, photoURL: user.user_metadata?.avatar_url };
+        MY_USER_ID = getMyUserId();
+        updateUserSignInUI(currentUser);
+        if (ADMIN_EMAILS.includes(user.email)) {
+          adminLoggedIn = true;
+          // Will show dashboard when renderAdmin is called
+        }
+      }
     }
-  } else {
-    currentUser = null;
-    MY_USER_ID = getMyUserId();
-    updateUserSignInUI(null);
+  } catch (e) {
+    console.error('Session check error:', e);
   }
-});
+})();
 
 function renderAdmin() {
+  // Check if already logged in from session
+  if (adminLoggedIn && currentUser && ADMIN_EMAILS.includes(currentUser.email)) {
+    $('#admin-login').style.display = 'none';
+    $('#admin-dashboard').style.display = 'flex';
+    const avatar = $('#admin-avatar');
+    const nameEl = $('#admin-name');
+    if (avatar && currentUser.photoURL) { avatar.src = currentUser.photoURL; avatar.style.display = 'block'; }
+    if (nameEl) { nameEl.textContent = currentUser.displayName; nameEl.style.display = 'block'; }
+    renderAdminDashboard();
+    return;
+  }
+  // Try to get session from storage
   supabaseClient.auth.getSession().then(({ data: { session } }) => {
     const user = session?.user;
     if (user && ADMIN_EMAILS.includes(user.email)) {
