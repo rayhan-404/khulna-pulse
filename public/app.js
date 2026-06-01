@@ -478,8 +478,9 @@ async function searchNominatim(query, limit = 5) {
       `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query + ' Khulna')}&format=json&addressdetails=1&limit=${limit + 5}&accept-language=bn,en&viewbox=89.20,22.75,89.65,23.05&bounded=0&countrycodes=bd`,
       { signal: nominatimController.signal, headers: { 'User-Agent': 'TrafficJamApp/1.0' } }
     );
-    if (!r.ok) return [];
+    if (!r.ok) { console.warn('[Nominatim] HTTP', r.status); return []; }
     const data = await r.json();
+    console.log('[Nominatim] query:', query, 'raw results:', data.length);
     // Only keep results within Khulna city area
     const KHULNA_BOUNDS = { minLat: 22.75, maxLat: 23.05, minLng: 89.20, maxLng: 89.65 };
     return data
@@ -499,7 +500,7 @@ async function searchNominatim(query, limit = 5) {
       }));
   } catch (e) {
     if (e.name === 'AbortError') return [];
-    console.warn('[Search] Nominatim error:', e.message);
+    console.warn('[Nominatim] error:', e.name, e.message);
     return [];
   }
 }
