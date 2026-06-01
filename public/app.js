@@ -1095,25 +1095,32 @@ function renderWizStep2(wc) {
 }
 
 window.setSev = function(k) { wizSev = k; renderWizard(); };
-window.submitReport = async function() {
-  wizName = $('#wiz-name')?.value || '';
-  const causeInfo = CAUSES.find(c => c.key === wizCause);
-  const reportData = {
-    id: nextId++,
-    place: locText || 'খুলনা',
-    lat: miniPin ? miniPin.getPosition().lat() : 22.8456,
-    lng: miniPin ? miniPin.getPosition().lng() : 89.5403,
-    cause: causeInfo ? causeInfo.name : wizCause,
-    sev: wizSev,
-    reporter: wizName || MY_USER_ID,
-    upvotes: 0,
-    flagged: false,
-    deleted: false,
-    created_at: Date.now(),
-  };
-  await saveReportToSupabase(reportData);
-  fireConfetti();
-  showSuccessOverlay();
+window.submitReport = function() {
+  try {
+    wizName = $('#wiz-name')?.value || '';
+    const causeInfo = CAUSES.find(c => c.key === wizCause);
+    const reportData = {
+      id: nextId++,
+      place: locText || 'খুলনা',
+      lat: miniPin ? miniPin.getPosition().lat() : 22.8456,
+      lng: miniPin ? miniPin.getPosition().lng() : 89.5403,
+      cause: causeInfo ? causeInfo.name : wizCause,
+      sev: wizSev,
+      reporter: wizName || MY_USER_ID,
+      upvotes: 0,
+      flagged: false,
+      deleted: false,
+      created_at: Date.now(),
+    };
+    // Save to Supabase in background (don't block UI)
+    saveReportToSupabase(reportData);
+    // Show success UI immediately
+    fireConfetti();
+    showSuccessOverlay();
+  } catch (err) {
+    console.error('Submit error:', err);
+    showToast('রিপোর্ট জমা দিতে সমস্যা হয়েছে');
+  }
 };
 
 // ===== REVERSE GEOCODING =====
