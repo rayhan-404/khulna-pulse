@@ -1814,17 +1814,21 @@ window.deleteReport = function(id) {
 
 function initAdminChart(type) {
   const ctx = document.getElementById('admin-chart');
-  if (!ctx) return;
-  if (window._adminChart) window._adminChart.destroy();
+  if (!ctx) { console.warn('[Admin] Chart canvas not found'); return; }
+  if (window._adminChart) { try { window._adminChart.destroy(); } catch(e) {} }
   const labels = ['যানজট','অটোরিকশা','রাস্তার কাজ','দুর্ঘটনা','পার্কিং'];
   const data = labels.map(l => reportsData.filter(r => !r.deleted && r.cause === l).length);
   const colors = ['#EF4444','#F59E0B','#3B82F6','#8B5CF6','#10B981'];
   const configs = {
-    bar: { type:'bar', data:{ labels, datasets:[{ label:'রিপোর্ট', data, backgroundColor: colors.map(c => c+'33'), borderColor: colors, borderWidth:2, borderRadius:8 }] }, options:{ responsive:true, plugins:{ legend:{display:false} }, scales:{ y:{beginAtZero:true, ticks:{stepSize:1}} } } },
-    line: { type:'line', data:{ labels, datasets:[{ label:'রিপোর্ট', data, borderColor:'#00B894', backgroundColor:'rgba(0,184,148,0.1)', fill:true, tension:.4, pointRadius:6, pointBackgroundColor:'#00B894' }] }, options:{ responsive:true, plugins:{ legend:{display:false} }, scales:{ y:{beginAtZero:true, ticks:{stepSize:1}} } } },
-    doughnut: { type:'doughnut', data:{ labels, datasets:[{ data, backgroundColor: colors.map(c => c+'88'), borderColor:'#fff', borderWidth:3 }] }, options:{ responsive:true, plugins:{ legend:{ position:'bottom', labels:{ padding:12, font:{ family:"'Baloo Da 2'", size:11 } } } } } },
+    bar: { type:'bar', data:{ labels, datasets:[{ label:'রিপোর্ট', data, backgroundColor: colors.map(c => c+'33'), borderColor: colors, borderWidth:2, borderRadius:8 }] }, options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false} }, scales:{ y:{beginAtZero:true, ticks:{stepSize:1}} } } },
+    line: { type:'line', data:{ labels, datasets:[{ label:'রিপোর্ট', data, borderColor:'#00B894', backgroundColor:'rgba(0,184,148,0.1)', fill:true, tension:.4, pointRadius:6, pointBackgroundColor:'#00B894' }] }, options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false} }, scales:{ y:{beginAtZero:true, ticks:{stepSize:1}} } } },
+    doughnut: { type:'doughnut', data:{ labels, datasets:[{ data, backgroundColor: colors.map(c => c+'88'), borderColor:'#fff', borderWidth:3 }] }, options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'bottom', labels:{ padding:12, font:{ family:"'Baloo Da 2'", size:11 } } } } } },
   };
-  window._adminChart = new Chart(ctx, configs[type] || configs.bar);
+  try {
+    window._adminChart = new Chart(ctx, configs[type] || configs.bar);
+  } catch(e) {
+    console.warn('[Admin] Chart render error:', e.message);
+  }
   document.querySelectorAll('.chart-tab').forEach(t => {
     t.onclick = () => { document.querySelectorAll('.chart-tab').forEach(x => x.classList.remove('active')); t.classList.add('active'); initAdminChart(t.dataset.chart); };
   });

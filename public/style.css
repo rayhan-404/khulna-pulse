@@ -989,7 +989,7 @@ img { display: block; max-width: 100%; }
 .chart-section {
   background: var(--srf); border-radius: var(--r-lg);
   border: 1.5px solid var(--brd2); box-shadow: var(--sh-card);
-  overflow: hidden;
+  overflow: visible;
 }
 .chart-tabs {
   display: flex; gap: 4px; padding: 12px 12px 8px;
@@ -1006,7 +1006,7 @@ img { display: block; max-width: 100%; }
   background: var(--pri); color: #fff; border-color: var(--pri);
   box-shadow: 0 2px 8px rgba(var(--pri-rgb),.3);
 }
-#admin-chart { padding: 8px 12px 12px; }
+#admin-chart { padding: 8px 12px 12px; min-height: 160px; max-height: 200px; }
 
 /* Filter pills */
 .filter-pills {
