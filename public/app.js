@@ -59,8 +59,14 @@ function getMyUserId() {
 let supabaseReady = false;
 let nextId = 1;
 
+function parseTimestamp(val) {
+  if (val === null || val === undefined) return Date.now();
+  return typeof val === 'string' ? parseInt(val, 10) : Number(val);
+}
+
 function getMinsAgo(createdAt) {
-  return Math.floor((Date.now() - createdAt) / 60000);
+  const ts = parseTimestamp(createdAt);
+  return Math.floor((Date.now() - ts) / 60000);
 }
 
 async function initSupabase() {
@@ -71,39 +77,55 @@ async function initSupabase() {
   }
 
   try {
+    // Fetch active (non-deleted) reports for map markers
     const { data: hotspots, error: hErr } = await supabaseClient
       .from('reports')
       .select('*')
       .eq('deleted', false)
       .order('created_at', { ascending: false });
     
-    if (!hErr && hotspots) {
+    if (hErr) {
+      console.error('Supabase fetch hotspots error:', hErr.message);
+    } else if (hotspots && hotspots.length > 0) {
       hotspotsData = hotspots.map(d => ({ ...d, minsAgo: getMinsAgo(d.created_at) }));
       if (map) addMarkers();
       renderSheetContent();
+      console.log('Loaded', hotspotsData.length, 'hotspots from Supabase');
+    } else {
+      console.log('No hotspots in Supabase yet (empty table)');
     }
 
+    // Fetch ALL reports for admin panel
     const { data: allReports, error: aErr } = await supabaseClient
       .from('reports')
       .select('*')
       .order('created_at', { ascending: false });
     
-    if (!aErr && allReports) {
+    if (aErr) {
+      console.error('Supabase fetch all reports error:', aErr.message);
+    } else if (allReports) {
       reportsData = allReports.map(d => ({ ...d, minsAgo: getMinsAgo(d.created_at) }));
       if (adminLoggedIn) renderAdminDashboard();
     }
 
-    const { data: maxRow } = await supabaseClient
+    // Get max ID for local nextId counter
+    const { data: maxRow, error: mErr } = await supabaseClient
       .from('reports')
       .select('id')
       .order('id', { ascending: false })
       .limit(1)
       .single();
-    if (maxRow) nextId = maxRow.id + 1;
+    if (mErr) {
+      console.log('No rows yet (empty table), starting nextId from 1');
+    } else if (maxRow) {
+      nextId = maxRow.id + 1;
+    }
 
+    // Set up real-time subscription
     supabaseClient
       .channel('reports-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'reports' }, async () => {
+        console.log('Real-time: reports table changed, refreshing...');
         const { data: hs } = await supabaseClient
           .from('reports')
           .select('*')
@@ -123,10 +145,12 @@ async function initSupabase() {
           if (adminLoggedIn) renderAdminDashboard();
         }
       })
-      .subscribe();
+      .subscribe((status) => {
+        console.log('Real-time subscription status:', status);
+      });
 
     supabaseReady = true;
-    console.log('Supabase real-time sync active!');
+    console.log('Supabase real-time sync active! Ready for reads/writes.');
   } catch (err) {
     console.error('Supabase init failed:', err);
   }
@@ -140,44 +164,61 @@ setInterval(() => {
 
 // ===== SUPABASE WRITE FUNCTIONS =====
 async function saveReportToSupabase(data) {
-  if (!supabaseReady) {
-    const item = { ...data, flagged: false, deleted: false };
-    hotspotsData.unshift({ ...item, minsAgo: 0 });
-    reportsData.unshift({ ...item, minsAgo: 0 });
+  // Always add to local arrays first for instant UI feedback
+  const item = { ...data, flagged: false, deleted: false };
+  hotspotsData.unshift({ ...item, minsAgo: 0 });
+  reportsData.unshift({ ...item, minsAgo: 0 });
+
+  // Refresh the map markers and sheet content immediately
+  if (map) addMarkers();
+  renderSheetContent();
+
+  if (typeof supabaseClient === 'undefined') {
+    console.warn('Supabase not available, data saved locally only');
     return;
   }
+
   try {
     const { id, ...rest } = data;
-    await supabaseClient.from('reports').insert(rest);
-    console.log('Report saved to Supabase');
+    const { error } = await supabaseClient.from('reports').insert(rest);
+    
+    if (error) {
+      console.error('Supabase insert error:', error.message, error.code);
+      showToast('রিপোর্ট সেভ করতে সমস্যা: ' + (error.message || 'Unknown error'));
+    } else {
+      console.log('Report saved to Supabase successfully!');
+    }
   } catch (err) {
-    console.error('Save failed:', err);
+    console.error('Save network error:', err);
     showToast('রিপোর্ট সেভ করতে সমস্যা');
   }
 }
 
 async function upvoteInSupabase(id) {
-  if (!supabaseReady) return;
+  if (typeof supabaseClient === 'undefined') return;
   try {
-    await supabaseClient.rpc('increment_upvotes', { report_id: id });
+    const { error } = await supabaseClient.rpc('increment_upvotes', { report_id: id });
+    if (error) console.error('Upvote error:', error.message);
   } catch (err) {
     console.error('Upvote failed:', err);
   }
 }
 
 async function toggleFlagInSupabase(id, flagged) {
-  if (!supabaseReady) return;
+  if (typeof supabaseClient === 'undefined') return;
   try {
-    await supabaseClient.from('reports').update({ flagged }).eq('id', id);
+    const { error } = await supabaseClient.from('reports').update({ flagged }).eq('id', id);
+    if (error) console.error('Flag error:', error.message);
   } catch (err) {
     console.error('Flag failed:', err);
   }
 }
 
 async function deleteReportInSupabase(id) {
-  if (!supabaseReady) return;
+  if (typeof supabaseClient === 'undefined') return;
   try {
-    await supabaseClient.from('reports').update({ deleted: true }).eq('id', id);
+    const { error } = await supabaseClient.from('reports').update({ deleted: true }).eq('id', id);
+    if (error) console.error('Delete error:', error.message);
   } catch (err) {
     console.error('Delete failed:', err);
   }
@@ -1301,7 +1342,8 @@ function renderAdminDashboard() {
   const uniqueReporters = new Set(reportsData.filter(r => !r.deleted).map(r => r.reporter));
   const totalUsers = uniqueReporters.size;
   const todayStart = new Date(); todayStart.setHours(0,0,0,0);
-  const activeToday = reportsData.filter(r => !r.deleted && r.created_at >= todayStart.getTime()).length;
+  const todayTs = todayStart.getTime();
+  const activeToday = reportsData.filter(r => !r.deleted && parseTimestamp(r.created_at) >= todayTs).length;
   const totalReports = reportsData.filter(r => !r.deleted).length;
   const totalUpvotes = reportsData.filter(r => !r.deleted).reduce((sum, r) => sum + (r.upvotes || 0), 0);
 
