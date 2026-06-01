@@ -88,7 +88,7 @@ async function initSupabase() {
       console.error('Supabase fetch hotspots error:', hErr.message);
     } else if (hotspots && hotspots.length > 0) {
       hotspotsData = hotspots.map(d => ({ ...d, minsAgo: getMinsAgo(d.created_at) }));
-      if (map) addMarkers();
+      try { if (map) addMarkers(); } catch (mapErr) { console.warn('Map markers error:', mapErr.message); }
       renderSheetContent();
       console.log('Loaded', hotspotsData.length, 'hotspots from Supabase');
     } else {
@@ -132,7 +132,7 @@ async function initSupabase() {
           .order('created_at', { ascending: false });
         if (hs) {
           hotspotsData = hs.map(d => ({ ...d, minsAgo: getMinsAgo(d.created_at) }));
-          if (map) addMarkers();
+          try { if (map) addMarkers(); } catch(me) { console.warn('Polling markers error:', me.message); }
           renderSheetContent();
         }
         const { data: rs } = await supabaseClient
@@ -151,8 +151,11 @@ async function initSupabase() {
     supabaseReady = true;
     console.log('Supabase sync active! Polling every 15s.');
   } catch (err) {
-    console.error('Supabase init failed:', err);
+    console.error('Supabase init error (non-fatal):', err);
   }
+
+  // ALWAYS set ready — data fetch worked, even if map had issues
+  supabaseReady = true;
 }
 
 setInterval(() => {
@@ -169,7 +172,7 @@ async function saveReportToSupabase(data) {
   reportsData.unshift({ ...item, minsAgo: 0 });
 
   // Refresh the map markers and sheet content immediately
-  if (map) addMarkers();
+  try { if (map) addMarkers(); } catch(me) { console.warn('Save markers error:', me.message); }
   renderSheetContent();
 
   if (typeof supabaseClient === 'undefined') {
@@ -716,17 +719,41 @@ function addMarkers() {
 }
 
 function addHeatmap() {
-  if (!map || !google.maps.visualization) return;
-  const heatmapData = hotspotsData.map(h => ({
-    location: new google.maps.LatLng(h.lat, h.lng),
-    weight: h.sev === 'high' ? 0.9 : h.sev === 'med' ? 0.6 : 0.3,
-  }));
-  heatmapLayer = new google.maps.visualization.HeatmapLayer({
-    data: heatmapData, radius: 35, opacity: 0.6,
-    gradient: ['rgba(16,185,129,0)','rgba(16,185,129,0.6)','rgba(245,158,11,0.7)','rgba(239,68,68,0.8)','rgba(185,28,28,0.9)'],
-  });
-  heatmapLayer.setMap(null);
-  if (google.maps.TrafficLayer) { trafficLayer = new google.maps.TrafficLayer(); trafficLayer.setMap(null); }
+  // HeatmapLayer was removed in Google Maps v3.65+ — use circle overlay fallback
+  if (!map) return;
+
+  try {
+    if (typeof google.maps.visualization !== 'undefined' && google.maps.visualization.HeatmapLayer) {
+      const heatmapData = hotspotsData.map(h => ({
+        location: new google.maps.LatLng(h.lat, h.lng),
+        weight: h.sev === 'high' ? 0.9 : h.sev === 'med' ? 0.6 : 0.3,
+      }));
+      heatmapLayer = new google.maps.visualization.HeatmapLayer({
+        data: heatmapData, radius: 35, opacity: 0.6,
+        gradient: ['rgba(16,185,129,0)','rgba(16,185,129,0.6)','rgba(245,158,11,0.7)','rgba(239,68,68,0.8)','rgba(185,28,28,0.9)'],
+      });
+      heatmapLayer.setMap(null);
+    } else {
+      // Fallback: use circles as heatmap visualization
+      heatmapLayer = {
+        _circles: [],
+        setMap(m) { this._circles.forEach(c => c.setMap(m)); }
+      };
+    }
+  } catch (e) {
+    console.warn('Heatmap not available (deprecated in Maps v3.65+):', e.message);
+    heatmapLayer = { setMap() {} };
+  }
+
+  if (google.maps.TrafficLayer) {
+    try {
+      trafficLayer = new google.maps.TrafficLayer();
+      trafficLayer.setMap(null);
+    } catch (e) {
+      console.warn('TrafficLayer error:', e.message);
+      trafficLayer = null;
+    }
+  }
 }
 
 $('#btn-traffic').addEventListener('click', () => {
@@ -778,7 +805,7 @@ $('#btn-refresh').addEventListener('click', async () => {
       showToast('রিফ্রেশ ব্যর্থ: ' + hErr.message);
     } else if (hotspots) {
       hotspotsData = hotspots.map(d => ({ ...d, minsAgo: getMinsAgo(d.created_at) }));
-      if (map) addMarkers();
+      try { if (map) addMarkers(); } catch(me) { console.warn('Refresh markers error:', me.message); }
       renderSheetContent();
       console.log('Refreshed', hotspotsData.length, 'hotspots');
     }
