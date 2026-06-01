@@ -771,8 +771,8 @@ $('#filter-close').addEventListener('click', closeFilter);
 $('#filter-backdrop').addEventListener('click', closeFilter);
 
 // ===== GOOGLE MAPS =====
-let map = null, heatmapLayer = null, heatmapOn = false;
-let trafficLayer = null, trafficOn = false;
+let map = null;
+let trafficLayer = null;
 let markers = [];
 let currentInfoWindow = null;
 let userLocationMarker = null;
@@ -853,62 +853,17 @@ function addMarkers() {
     markers.push(marker);
   });
 
-  addHeatmap();
-}
-
-function addHeatmap() {
-  // HeatmapLayer was removed in Google Maps v3.65+ — use circle overlay fallback
-  if (!map) return;
-
-  try {
-    if (typeof google.maps.visualization !== 'undefined' && google.maps.visualization.HeatmapLayer) {
-      const heatmapData = hotspotsData.map(h => ({
-        location: new google.maps.LatLng(h.lat, h.lng),
-        weight: h.sev === 'high' ? 0.9 : h.sev === 'med' ? 0.6 : 0.3,
-      }));
-      heatmapLayer = new google.maps.visualization.HeatmapLayer({
-        data: heatmapData, radius: 35, opacity: 0.6,
-        gradient: ['rgba(16,185,129,0)','rgba(16,185,129,0.6)','rgba(245,158,11,0.7)','rgba(239,68,68,0.8)','rgba(185,28,28,0.9)'],
-      });
-      heatmapLayer.setMap(null);
-    } else {
-      // Fallback: use circles as heatmap visualization
-      heatmapLayer = {
-        _circles: [],
-        setMap(m) { this._circles.forEach(c => c.setMap(m)); }
-      };
-    }
-  } catch (e) {
-    console.warn('Heatmap not available (deprecated in Maps v3.65+):', e.message);
-    heatmapLayer = { setMap() {} };
-  }
-
+  // Traffic layer ON by default
   if (google.maps.TrafficLayer) {
     try {
       trafficLayer = new google.maps.TrafficLayer();
-      trafficLayer.setMap(null);
+      trafficLayer.setMap(map);
     } catch (e) {
       console.warn('TrafficLayer error:', e.message);
       trafficLayer = null;
     }
   }
 }
-
-$('#btn-traffic').addEventListener('click', () => {
-  if (!map || !trafficLayer) { showToast('ট্রাফিক লেয়ার পাওয়া যায়নি'); return; }
-  trafficOn = !trafficOn;
-  $('#btn-traffic').classList.toggle('active', trafficOn);
-  trafficLayer.setMap(trafficOn ? map : null);
-  showToast(trafficOn ? 'ট্রাফিক লেয়ার চালু' : 'ট্রাফিক লেয়ার বন্ধ');
-});
-
-$('#btn-heatmap').addEventListener('click', () => {
-  heatmapOn = !heatmapOn;
-  $('#btn-heatmap').classList.toggle('active', heatmapOn);
-  if (!map || !heatmapLayer) return;
-  heatmapLayer.setMap(heatmapOn ? map : null);
-  showToast(heatmapOn ? 'হিটম্যাপ চালু' : 'হিটম্যাপ বন্ধ');
-});
 
 // ===== REFRESH BUTTON =====
 $('#btn-refresh').addEventListener('click', async () => {
