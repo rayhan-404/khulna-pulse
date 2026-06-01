@@ -745,6 +745,70 @@ $('#btn-heatmap').addEventListener('click', () => {
   showToast(heatmapOn ? 'হিটম্যাপ চালু' : 'হিটম্যাপ বন্ধ');
 });
 
+// ===== REFRESH BUTTON =====
+$('#btn-refresh').addEventListener('click', async () => {
+  const btn = $('#btn-refresh');
+  const svg = $('#refresh-svg');
+  if (!svg) return;
+
+  // Spin animation
+  btn.disabled = true;
+  svg.style.transition = 'transform 0.6s ease';
+  svg.style.transform = 'rotate(360deg)';
+  showToast('ডেটা রিফ্রেশ হচ্ছে...');
+
+  // Force re-fetch from Supabase
+  supabaseReady = false; // Reset to allow re-init
+
+  try {
+    if (typeof supabaseClient === 'undefined') {
+      showToast('সুপাবেস কনেক্ট নেই');
+      btn.disabled = false;
+      svg.style.transform = 'rotate(0deg)';
+      return;
+    }
+
+    const { data: hotspots, error: hErr } = await supabaseClient
+      .from('reports')
+      .select('*')
+      .eq('deleted', false)
+      .order('created_at', { ascending: false });
+
+    if (hErr) {
+      showToast('রিফ্রেশ ব্যর্থ: ' + hErr.message);
+    } else if (hotspots) {
+      hotspotsData = hotspots.map(d => ({ ...d, minsAgo: getMinsAgo(d.created_at) }));
+      if (map) addMarkers();
+      renderSheetContent();
+      console.log('Refreshed', hotspotsData.length, 'hotspots');
+    }
+
+    const { data: allReports, error: aErr } = await supabaseClient
+      .from('reports')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (!aErr && allReports) {
+      reportsData = allReports.map(d => ({ ...d, minsAgo: getMinsAgo(d.created_at) }));
+      if (adminLoggedIn) renderAdminDashboard();
+    }
+
+    supabaseReady = true;
+    showToast('ডেটা রিফ্রেশ সম্পন্ন! (' + hotspotsData.length + ' রিপোর্ট)');
+  } catch (err) {
+    console.error('Refresh error:', err);
+    showToast('রিফ্রেশ ব্যর্থ');
+    supabaseReady = true;
+  }
+
+  // Reset button
+  setTimeout(() => {
+    svg.style.transition = 'none';
+    svg.style.transform = 'rotate(0deg)';
+    btn.disabled = false;
+  }, 300);
+});
+
 // ===== BOTTOM SHEET SWIPE =====
 let sheetH = 180, dragging = false, dragY0 = 0, dragH0 = 0;
 const sheetEl = $('#bottom-sheet');
