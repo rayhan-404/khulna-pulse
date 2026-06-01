@@ -475,19 +475,20 @@ async function searchNominatim(query, limit = 5) {
 
   try {
     const r = await fetch(
-      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query + ' Khulna')}&format=json&addressdetails=1&limit=${limit}&accept-language=bn,en&viewbox=89.31,22.79,89.56,22.96&bounded=1`,
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query + ' Khulna')}&format=json&addressdetails=1&limit=${limit + 5}&accept-language=bn,en&viewbox=89.20,22.75,89.65,23.05&bounded=0&countrycodes=bd`,
       { signal: nominatimController.signal, headers: { 'User-Agent': 'TrafficJamApp/1.0' } }
     );
     if (!r.ok) return [];
     const data = await r.json();
-    // Only keep results within Khulna city bounds (extra safety)
-    const KHULNA_BOUNDS = { minLat: 22.79, maxLat: 22.96, minLng: 89.31, maxLng: 89.56 };
+    // Only keep results within Khulna city area
+    const KHULNA_BOUNDS = { minLat: 22.75, maxLat: 23.05, minLng: 89.20, maxLng: 89.65 };
     return data
       .filter(d => {
         const lat = parseFloat(d.lat), lng = parseFloat(d.lon);
         return lat >= KHULNA_BOUNDS.minLat && lat <= KHULNA_BOUNDS.maxLat &&
                lng >= KHULNA_BOUNDS.minLng && lng <= KHULNA_BOUNDS.maxLng;
       })
+      .slice(0, limit)
       .map(d => ({
         text: (d.display_name || '').split(',').slice(0, 2).join(',').trim(),
         sub: (d.display_name || '').split(',').slice(2, 4).join(',').trim(),
