@@ -475,19 +475,27 @@ async function searchNominatim(query, limit = 5) {
 
   try {
     const r = await fetch(
-      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&addressdetails=1&limit=${limit}&accept-language=bn,en&viewbox=89.3,22.7,89.9,23.0&bounded=0`,
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query + ' Khulna')}&format=json&addressdetails=1&limit=${limit}&accept-language=bn,en&viewbox=89.31,22.79,89.56,22.96&bounded=1`,
       { signal: nominatimController.signal, headers: { 'User-Agent': 'TrafficJamApp/1.0' } }
     );
     if (!r.ok) return [];
     const data = await r.json();
-    return data.map(d => ({
-      text: (d.display_name || '').split(',').slice(0, 2).join(',').trim(),
-      sub: (d.display_name || '').split(',').slice(2, 4).join(',').trim(),
-      lat: parseFloat(d.lat),
-      lng: parseFloat(d.lon),
-      type: d.type || 'place',
-      nominatim: true
-    }));
+    // Only keep results within Khulna city bounds (extra safety)
+    const KHULNA_BOUNDS = { minLat: 22.79, maxLat: 22.96, minLng: 89.31, maxLng: 89.56 };
+    return data
+      .filter(d => {
+        const lat = parseFloat(d.lat), lng = parseFloat(d.lon);
+        return lat >= KHULNA_BOUNDS.minLat && lat <= KHULNA_BOUNDS.maxLat &&
+               lng >= KHULNA_BOUNDS.minLng && lng <= KHULNA_BOUNDS.maxLng;
+      })
+      .map(d => ({
+        text: (d.display_name || '').split(',').slice(0, 2).join(',').trim(),
+        sub: (d.display_name || '').split(',').slice(2, 4).join(',').trim(),
+        lat: parseFloat(d.lat),
+        lng: parseFloat(d.lon),
+        type: d.type || 'place',
+        nominatim: true
+      }));
   } catch (e) {
     if (e.name === 'AbortError') return [];
     console.warn('[Search] Nominatim error:', e.message);
