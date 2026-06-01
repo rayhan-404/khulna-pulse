@@ -1262,8 +1262,18 @@ window.wizPrev  = function()  { if (wizStep > 0) { wizStep--; renderWizard(); } 
 function renderWizStep1(wc) {
   wc.innerHTML = `<div class="wz-content">
     <div class="step-title">অবস্থান নির্বাচন করুন</div>
+    <div class="report-search-box">
+      <div class="report-search-row">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--tx4)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="report-search-input" placeholder="Search location / জায়গা খুঁজুন..." autocomplete="off" />
+        <button class="report-search-clear" id="report-search-clear" style="display:none">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="report-search-dropdown" id="report-search-dropdown"></div>
+    </div>
     <div class="loc-card">
-      <div id="mini-map" style="height:200px"></div>
+      <div id="mini-map" style="height:320px"></div>
       <div class="loc-bar">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--pri)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
         <span class="lb-text" id="loc-text">${locText}</span>
@@ -1275,7 +1285,7 @@ function renderWizStep1(wc) {
       <button class="app-btn primary" onclick="wizNext()">পরবর্তী ধাপ <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></button>
     </div>
   </div>`;
-  setTimeout(initMiniMap, 150);
+  setTimeout(() => { initMiniMap(); initReportSearch(); }, 150);
 }
 
 function renderWizStep2(wc) {
@@ -1341,6 +1351,90 @@ window.submitReport = function() {
     showToast('রিপোর্ট জমা দিতে সমস্যা হয়েছে');
   }
 };
+
+// ===== REPORT LOCATION SEARCH =====
+let reportSearchDebounce = null;
+
+function initReportSearch() {
+  const input    = $('#report-search-input');
+  const dropdown = $('#report-search-dropdown');
+  const clearBtn = $('#report-search-clear');
+  if (!input || !dropdown) return;
+
+  input.addEventListener('input', () => {
+    clearTimeout(reportSearchDebounce);
+    reportSearchDebounce = setTimeout(() => {
+      const q = input.value.trim().toLowerCase();
+      clearBtn.style.display = q ? 'flex' : 'none';
+      if (!q) { dropdown.classList.remove('show'); return; }
+
+      const results = [
+        ...ALL_SEARCHABLE
+          .filter(s => s.toLowerCase().includes(q))
+          .map(s => {
+            const p = KNOWN_PLACES[s];
+            return { text: s, sub: '', live: false, lat: p ? p.lat : null, lng: p ? p.lng : null };
+          }),
+        ...SUGGESTIONS
+          .filter(s => !ALL_SEARCHABLE.includes(s) && s.toLowerCase().includes(q))
+          .map(s => ({
+            text: s, sub: '', live: false,
+            ...(KNOWN_PLACES[s] || {})
+          })),
+      ];
+
+      if (!results.length) { dropdown.classList.remove('show'); return; }
+
+      dropdown.innerHTML = results.slice(0, 6).map(r => `
+        <div class="report-sd-item">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--pri)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+          <div style="flex:1;min-width:0">
+            <div class="report-sd-name">${r.text}</div>
+          </div>
+        </div>`).join('');
+
+      dropdown.classList.add('show');
+      dropdown.querySelectorAll('.report-sd-item').forEach((el, i) => {
+        el.addEventListener('click', () => {
+          const r = results[i];
+          input.value = r.text;
+          dropdown.classList.remove('show');
+          clearBtn.style.display = 'flex';
+
+          // Navigate mini map to the location
+          if (miniMap && r.lat && r.lng) {
+            miniMap.setCenter({ lat: r.lat, lng: r.lng });
+            miniMap.setZoom(17);
+            // Place pin at the location
+            if (miniPin) miniPin.setMap(null);
+            miniPin = new google.maps.Marker({
+              position: { lat: r.lat, lng: r.lng }, map: miniMap,
+              icon: { url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="30" height="40" viewBox="0 0 30 40"><path d="M15 2C8.37 2 3 7.27 3 13.75c0 5.62 8.8 17.1 13.2 23.1 4.4-6 13.2-17.48 13.2-23.1C29.4 7.27 24.03 2 17.4 2H15z" fill="#00B894" stroke="#fff" stroke-width="2"/><circle cx="15" cy="14" r="6" fill="#fff"/></svg>`),
+                scaledSize: new google.maps.Size(30, 40), anchor: new google.maps.Point(15, 40) },
+              animation: google.maps.Animation.DROP,
+            });
+            locText = r.text;
+            locStatus = 'পাওয়া গেছে';
+            if ($('#loc-text'))  $('#loc-text').textContent  = locText;
+            if ($('#loc-badge')) $('#loc-badge').textContent = locStatus;
+            showToast('অবস্থান: ' + r.text);
+          }
+        });
+      });
+    }, 200);
+  });
+
+  clearBtn.addEventListener('click', () => {
+    input.value = '';
+    clearBtn.style.display = 'none';
+    dropdown.classList.remove('show');
+    input.focus();
+  });
+
+  document.addEventListener('click', e => {
+    if (!e.target.closest('.report-search-box')) dropdown.classList.remove('show');
+  });
+}
 
 // ===== REVERSE GEOCODING =====
 async function reverseGeocode(lat, lng) {

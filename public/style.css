@@ -788,6 +788,53 @@ img { display: block; max-width: 100%; }
 }
 
 /* Location Card */
+/* Report Location Search */
+.report-search-box {
+  position: relative;
+}
+.report-search-row {
+  display: flex; align-items: center; gap: 9px;
+  background: var(--srf); border-radius: var(--r-full);
+  padding: 10px 14px; border: 1.5px solid var(--brd);
+  box-shadow: var(--sh-card);
+  transition: all var(--dur);
+}
+.report-search-row:focus-within {
+  border-color: var(--pri);
+  box-shadow: var(--sh-card), 0 0 0 3px rgba(var(--pri-rgb),.15);
+}
+.report-search-row input {
+  flex: 1; font-size: 13px; color: var(--tx2);
+  background: transparent; font-weight: 500; outline: none;
+}
+.report-search-row input::placeholder { color: var(--tx4); font-weight: 400; }
+.report-search-clear {
+  background: none; color: var(--tx4); padding: 2px;
+  display: none; align-items: center; justify-content: center;
+  transition: color var(--dur-fast); cursor: pointer; border: none;
+}
+.report-search-clear:active { color: var(--tx2); }
+.report-search-dropdown {
+  position: absolute; top: calc(100% + 8px); left: 0; right: 0;
+  z-index: 200; background: var(--srf); border-radius: var(--r-lg);
+  box-shadow: var(--sh-modal); max-height: 240px; overflow-y: auto;
+  display: none; border: 1px solid var(--brd);
+}
+.report-search-dropdown.show {
+  display: block;
+  animation: slideDown var(--dur) var(--ease);
+}
+.report-sd-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 14px; cursor: pointer;
+  transition: background var(--dur-fast);
+  font-size: 13px;
+}
+.report-sd-item:first-child { border-radius: var(--r-lg) var(--r-lg) 0 0; }
+.report-sd-item:last-child  { border-radius: 0 0 var(--r-lg) var(--r-lg); }
+.report-sd-item:hover { background: var(--pri-lt); }
+.report-sd-name { font-weight: 600; color: var(--tx); font-size: 13px; }
+
 .loc-card {
   background: var(--srf); border-radius: var(--r-lg);
   overflow: hidden; border: 1.5px solid var(--brd);
