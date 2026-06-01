@@ -180,17 +180,21 @@ async function saveReportToSupabase(data) {
 
   try {
     const { id, ...rest } = data;
-    const { error } = await supabaseClient.from('reports').insert(rest);
+    // Add 8-second timeout to prevent hanging
+    const result = await Promise.race([
+      supabaseClient.from('reports').insert(rest),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Supabase timeout (8s)')), 8000))
+    ]);
     
-    if (error) {
-      console.error('Supabase insert error:', error.message, error.code);
-      showToast('রিপোর্ট সেভ করতে সমস্যা: ' + (error.message || 'Unknown error'));
+    if (result.error) {
+      console.error('Supabase insert error:', result.error.message, result.error.code);
+      showToast('রিপোর্ট সেভ করতে সমস্যা: ' + (result.error.message || 'Unknown error'));
     } else {
       console.log('Report saved to Supabase successfully!');
     }
   } catch (err) {
-    console.error('Save network error:', err);
-    showToast('রিপোর্ট সেভ করতে সমস্যা');
+    console.error('Save network error:', err.message);
+    showToast('রিপোর্ট সেভ করতে সমস্যা (timeout)');
   }
 }
 
@@ -1465,10 +1469,13 @@ function initAdminChart(type) {
 function waitForGoogleMaps() {
   if (window.google && google.maps) {
     initMap();
-    initSupabase();
   } else {
     setTimeout(waitForGoogleMaps, 100);
   }
 }
 
+// Start Supabase IMMEDIATELY — don't wait for Google Maps
+initSupabase();
+
+// Start Google Maps loading
 waitForGoogleMaps();
