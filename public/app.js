@@ -465,11 +465,92 @@ function createInfoWindowHTML(h) {
   </div>`;
 }
 
+// ===== GOOGLE PLACES AUTOCOMPLETE =====
+let placesService = null;
+let autocompleteService = null;
+function initPlacesServices() {
+  try {
+    if (google && google.maps && google.maps.places) {
+      autocompleteService = new google.maps.places.AutocompleteService();
+      placesService = new google.maps.places.PlacesService(map);
+      console.log('[Search] Google Places services ready');
+    }
+  } catch (e) {
+    console.warn('[Search] Places API not available:', e);
+  }
+}
+
 // ===== SEARCH AUTOCOMPLETE =====
 const searchInput    = $('#search-input');
 const searchDropdown = $('#search-dropdown');
 const searchClear    = $('#search-clear');
 let searchDebounce   = null;
+
+function renderSearchResults(results) {
+  if (!results.length) { searchDropdown.classList.remove('show'); return; }
+
+  searchDropdown.innerHTML = results.map(r => `
+    <div class="sd-item">
+      <div class="sd-dot" style="${r.live ? 'background:var(--sev-l)' : r.place ? 'background:var(--pri)' : ''}"></div>
+      <div style="flex:1;min-width:0">
+        <div class="sd-name">${r.text}</div>
+        ${r.sub ? `<div class="sd-sub">${r.sub}</div>` : ''}
+      </div>
+      ${r.live ? '<span class="sd-badge">LIVE</span>' : ''}
+      ${r.place ? '<span class="sd-badge" style="background:var(--pri-lt);color:var(--pri)">MAP</span>' : ''}
+    </div>`).join('');
+
+  searchDropdown.classList.add('show');
+  searchDropdown.querySelectorAll('.sd-item').forEach((el, i) => {
+    el.addEventListener('click', () => {
+      const r = results[i];
+      searchInput.value = r.text;
+      searchDropdown.classList.remove('show');
+      searchClear.style.display = 'block';
+
+      if (r.live) {
+        // Live hotspot — zoom to report location
+        const h = hotspotsData.find(x => x.place === r.text);
+        if (h && map) smoothZoomToLocation(h.lat, h.lng, 18);
+        showToast('অবস্থান: ' + r.text);
+      } else if (r.placeId && placesService && map) {
+        // Google Place — get details and zoom
+        placesService.getDetails({ placeId: r.placeId, fields: ['geometry', 'name'] }, (place, status) => {
+          if (status === 'OK' && place && place.geometry) {
+            smoothZoomToLocation(
+              place.geometry.location.lat(),
+              place.geometry.location.lng(), 17
+            );
+            showToast('অবস্থান: ' + place.name);
+          } else {
+            showToast('জায়গা পাওয়া যায়নি');
+          }
+        });
+      } else if (r.lat && r.lng && map) {
+        // Known suggestion with coordinates
+        smoothZoomToLocation(r.lat, r.lng, 17);
+        showToast('অবস্থান: ' + r.text);
+      } else {
+        showToast('অবস্থান: ' + r.text);
+      }
+    });
+  });
+}
+
+// Known places with approximate coordinates for Khulna
+const KNOWN_PLACES = {
+  'বয়রা মোড়': { lat: 22.8456, lng: 89.5403 },
+  'সোনাডাঙ্গা বাস স্ট্যান্ড': { lat: 22.8400, lng: 89.5310 },
+  'রূপসা ঘাট': { lat: 22.8200, lng: 89.5600 },
+  'KDA এভিনিউ': { lat: 22.8450, lng: 89.5380 },
+  'শিব বাড়ি মোড়': { lat: 22.8470, lng: 89.5370 },
+  'কাজীর দেউড়ি': { lat: 22.8430, lng: 89.5350 },
+  'খালিশপুর মোড়': { lat: 22.8500, lng: 89.5450 },
+  'ডাকবাংলো মোড়': { lat: 22.8480, lng: 89.5320 },
+  'আসাদগঞ্জ': { lat: 22.8300, lng: 89.5500 },
+  'হালিশহর': { lat: 22.8550, lng: 89.5250 },
+  'দৌলতপুর': { lat: 22.8600, lng: 89.5200 },
+};
 
 searchInput.addEventListener('input', () => {
   clearTimeout(searchDebounce);
@@ -478,41 +559,50 @@ searchInput.addEventListener('input', () => {
     searchClear.style.display = q ? 'block' : 'none';
     if (!q) { searchDropdown.classList.remove('show'); return; }
 
-    const results = [
+    // Local results (suggestions + live hotspots)
+    const localResults = [
       ...SUGGESTIONS
         .filter(s => s.toLowerCase().includes(q))
-        .map(s => ({ text:s, sub:'', live:false })),
+        .map(s => ({
+          text:s, sub:'', live:false,
+          ...(KNOWN_PLACES[s] || {})
+        })),
       ...hotspotsData
         .filter(h => h.place.toLowerCase().includes(q) || h.cause.toLowerCase().includes(q))
         .map(h => ({ text:h.place, sub:h.cause, live:true })),
-    ].slice(0, 6);
+    ];
 
-    if (!results.length) { searchDropdown.classList.remove('show'); return; }
+    // If we have local results, show them immediately + fetch Google Places in background
+    if (localResults.length > 0) {
+      renderSearchResults(localResults.slice(0, 6));
+    }
 
-    searchDropdown.innerHTML = results.map(r => `
-      <div class="sd-item">
-        <div class="sd-dot"></div>
-        <div style="flex:1;min-width:0">
-          <div class="sd-name">${r.text}</div>
-          ${r.sub ? `<div class="sd-sub">${r.sub}</div>` : ''}
-        </div>
-        ${r.live ? '<span class="sd-badge">LIVE</span>' : ''}
-      </div>`).join('');
+    // Also search Google Places for more results
+    if (autocompleteService && map) {
+      autocompleteService.getPlacePredictions(
+        { input: searchInput.value.trim(), location: map.getCenter(), radius: 50000 },
+        (predictions, status) => {
+          if (status !== 'OK' || !predictions) return;
+          const gResults = predictions.slice(0, 5).map(p => ({
+            text: p.structured_formatting?.main_text || p.description,
+            sub: p.structured_formatting?.secondary_text || '',
+            live: false, place: true, placeId: p.place_id
+          }));
 
-    searchDropdown.classList.add('show');
-    searchDropdown.querySelectorAll('.sd-item').forEach((el, i) => {
-      el.addEventListener('click', () => {
-        searchInput.value = results[i].text;
-        searchDropdown.classList.remove('show');
-        searchClear.style.display = 'block';
-        if (results[i].live) {
-          const h = hotspotsData.find(x => x.place === results[i].text);
-          if (h && map) smoothZoomToLocation(h.lat, h.lng, 18);
+          // Merge: local first, then Google (deduplicate by text)
+          const merged = [];
+          const seen = new Set();
+          localResults.forEach(r => { if (!seen.has(r.text)) { merged.push(r); seen.add(r.text); } });
+          gResults.forEach(r => { if (!seen.has(r.text)) { merged.push(r); seen.add(r.text); } });
+
+          renderSearchResults(merged.slice(0, 8));
         }
-        showToast('অবস্থান: ' + results[i].text);
-      });
-    });
-  }, 200);
+      );
+    } else if (localResults.length === 0) {
+      // No local results and no Google Places — show nothing
+      searchDropdown.classList.remove('show');
+    }
+  }, 250);
 });
 
 searchClear.addEventListener('click', () => {
@@ -676,6 +766,9 @@ function initMap() {
     const loadingOverlay = document.querySelector('.map-loading-overlay');
     if (loadingOverlay) loadingOverlay.classList.add('loaded');
   });
+
+  // Initialize Google Places services for search autocomplete
+  initPlacesServices();
 
   addMarkers();
 }
