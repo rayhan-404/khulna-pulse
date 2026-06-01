@@ -465,7 +465,37 @@ function createInfoWindowHTML(h) {
   </div>`;
 }
 
-// ===== GOOGLE PLACES AUTOCOMPLETE =====
+// ===== NOMINATIM SEARCH (OpenStreetMap — free, no API key) =====
+let nominatimController = null;
+
+async function searchNominatim(query, limit = 5) {
+  // Abort previous request if still pending
+  if (nominatimController) { try { nominatimController.abort(); } catch(e) {} }
+  nominatimController = new AbortController();
+
+  try {
+    const r = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&addressdetails=1&limit=${limit}&accept-language=bn,en&viewbox=89.3,22.7,89.9,23.0&bounded=0`,
+      { signal: nominatimController.signal, headers: { 'User-Agent': 'TrafficJamApp/1.0' } }
+    );
+    if (!r.ok) return [];
+    const data = await r.json();
+    return data.map(d => ({
+      text: (d.display_name || '').split(',').slice(0, 2).join(',').trim(),
+      sub: (d.display_name || '').split(',').slice(2, 4).join(',').trim(),
+      lat: parseFloat(d.lat),
+      lng: parseFloat(d.lon),
+      type: d.type || 'place',
+      nominatim: true
+    }));
+  } catch (e) {
+    if (e.name === 'AbortError') return [];
+    console.warn('[Search] Nominatim error:', e.message);
+    return [];
+  }
+}
+
+// ===== GOOGLE PLACES AUTOCOMPLETE (fallback if enabled) =====
 let placesService = null;
 let autocompleteService = null;
 let placesAvailable = false;
@@ -532,13 +562,13 @@ function renderSearchResults(results) {
 
   searchDropdown.innerHTML = results.map(r => `
     <div class="sd-item">
-      <div class="sd-dot" style="${r.live ? 'background:var(--sev-l)' : r.place ? 'background:var(--pri)' : ''}"></div>
+      <div class="sd-dot" style="${r.live ? 'background:var(--sev-l)' : r.nominatim ? 'background:#6366f1' : r.place ? 'background:var(--pri)' : ''}"></div>
       <div style="flex:1;min-width:0">
         <div class="sd-name">${r.text}</div>
         ${r.sub ? `<div class="sd-sub">${r.sub}</div>` : ''}
       </div>
       ${r.live ? '<span class="sd-badge">LIVE</span>' : ''}
-      ${r.place ? '<span class="sd-badge" style="background:var(--pri-lt);color:var(--pri)">MAP</span>' : ''}
+      ${r.nominatim ? '<span class="sd-badge" style="background:#eef2ff;color:#6366f1">SEARCH</span>' : ''}
     </div>`).join('');
 
   searchDropdown.classList.add('show');
@@ -550,25 +580,10 @@ function renderSearchResults(results) {
       searchClear.style.display = 'block';
 
       if (r.live) {
-        // Live hotspot — zoom to report location
         const h = hotspotsData.find(x => x.place === r.text);
         if (h && map) smoothZoomToLocation(h.lat, h.lng, 18);
         showToast('অবস্থান: ' + r.text);
-      } else if (r.placeId && placesService && map) {
-        // Google Place — get details and zoom
-        placesService.getDetails({ placeId: r.placeId, fields: ['geometry', 'name'] }, (place, status) => {
-          if (status === 'OK' && place && place.geometry) {
-            smoothZoomToLocation(
-              place.geometry.location.lat(),
-              place.geometry.location.lng(), 17
-            );
-            showToast('অবস্থান: ' + place.name);
-          } else {
-            showToast('জায়গা পাওয়া যায়নি');
-          }
-        });
       } else if (r.lat && r.lng && map) {
-        // Known suggestion with coordinates
         smoothZoomToLocation(r.lat, r.lng, 17);
         showToast('অবস্থান: ' + r.text);
       } else {
@@ -580,7 +595,7 @@ function renderSearchResults(results) {
 
 searchInput.addEventListener('input', () => {
   clearTimeout(searchDebounce);
-  searchDebounce = setTimeout(() => {
+  searchDebounce = setTimeout(async () => {
     const q = searchInput.value.trim().toLowerCase();
     searchClear.style.display = q ? 'block' : 'none';
     if (!q) { searchDropdown.classList.remove('show'); return; }
@@ -604,37 +619,26 @@ searchInput.addEventListener('input', () => {
         .map(h => ({ text:h.place, sub:h.cause, live:true })),
     ];
 
-    // If we have local results, show them immediately + fetch Google Places in background
+    // Show local results immediately
     if (localResults.length > 0) {
       renderSearchResults(localResults.slice(0, 6));
     }
 
-    // Also search Google Places for more results (if available)
-    if (autocompleteService && map && placesAvailable) {
-      autocompleteService.getPlacePredictions(
-        { input: searchInput.value.trim(), locationBias: { center: map.getCenter(), radius: 50000 } },
-        (predictions, status) => {
-          if (status !== 'OK' || !predictions) return;
-          const gResults = predictions.slice(0, 5).map(p => ({
-            text: p.structured_formatting?.main_text || p.description,
-            sub: p.structured_formatting?.secondary_text || '',
-            live: false, place: true, placeId: p.place_id
-          }));
+    // Search Nominatim for ANY place in the world
+    const nomResults = await searchNominatim(searchInput.value.trim(), 5);
 
-          // Merge: local first, then Google (deduplicate by text)
-          const merged = [];
-          const seen = new Set();
-          localResults.forEach(r => { if (!seen.has(r.text)) { merged.push(r); seen.add(r.text); } });
-          gResults.forEach(r => { if (!seen.has(r.text)) { merged.push(r); seen.add(r.text); } });
+    // Merge: local first, then Nominatim (deduplicate by text)
+    const merged = [];
+    const seen = new Set();
+    localResults.forEach(r => { if (!seen.has(r.text)) { merged.push(r); seen.add(r.text); } });
+    nomResults.forEach(r => { if (!seen.has(r.text)) { merged.push(r); seen.add(r.text); } });
 
-          renderSearchResults(merged.slice(0, 8));
-        }
-      );
-    } else if (localResults.length === 0) {
-      // No local results and no Google Places — show nothing
+    if (merged.length > 0) {
+      renderSearchResults(merged.slice(0, 8));
+    } else {
       searchDropdown.classList.remove('show');
     }
-  }, 250);
+  }, 300);
 });
 
 searchClear.addEventListener('click', () => {
@@ -1363,65 +1367,47 @@ function initReportSearch() {
 
   input.addEventListener('input', () => {
     clearTimeout(reportSearchDebounce);
-    reportSearchDebounce = setTimeout(() => {
+    reportSearchDebounce = setTimeout(async () => {
       const q = input.value.trim().toLowerCase();
       clearBtn.style.display = q ? 'flex' : 'none';
       if (!q) { dropdown.classList.remove('show'); return; }
 
-      const results = [
+      // Local results
+      const localResults = [
         ...ALL_SEARCHABLE
           .filter(s => s.toLowerCase().includes(q))
           .map(s => {
             const p = KNOWN_PLACES[s];
-            return { text: s, sub: '', live: false, lat: p ? p.lat : null, lng: p ? p.lng : null };
+            return { text: s, sub: '', lat: p ? p.lat : null, lng: p ? p.lng : null };
           }),
         ...SUGGESTIONS
           .filter(s => !ALL_SEARCHABLE.includes(s) && s.toLowerCase().includes(q))
           .map(s => ({
-            text: s, sub: '', live: false,
+            text: s, sub: '', lat: null, lng: null,
             ...(KNOWN_PLACES[s] || {})
           })),
       ];
 
-      if (!results.length) { dropdown.classList.remove('show'); return; }
+      // Show local results immediately
+      if (localResults.length > 0) {
+        renderReportSearchResults(dropdown, localResults.slice(0, 6));
+      }
 
-      dropdown.innerHTML = results.slice(0, 6).map(r => `
-        <div class="report-sd-item">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--pri)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-          <div style="flex:1;min-width:0">
-            <div class="report-sd-name">${r.text}</div>
-          </div>
-        </div>`).join('');
+      // Search Nominatim for any place
+      const nomResults = await searchNominatim(input.value.trim(), 5);
 
-      dropdown.classList.add('show');
-      dropdown.querySelectorAll('.report-sd-item').forEach((el, i) => {
-        el.addEventListener('click', () => {
-          const r = results[i];
-          input.value = r.text;
-          dropdown.classList.remove('show');
-          clearBtn.style.display = 'flex';
+      // Merge: local first, then Nominatim
+      const merged = [];
+      const seen = new Set();
+      localResults.forEach(r => { if (!seen.has(r.text)) { merged.push(r); seen.add(r.text); } });
+      nomResults.forEach(r => { if (!seen.has(r.text)) { merged.push(r); seen.add(r.text); } });
 
-          // Navigate mini map to the location
-          if (miniMap && r.lat && r.lng) {
-            miniMap.setCenter({ lat: r.lat, lng: r.lng });
-            miniMap.setZoom(17);
-            // Place pin at the location
-            if (miniPin) miniPin.setMap(null);
-            miniPin = new google.maps.Marker({
-              position: { lat: r.lat, lng: r.lng }, map: miniMap,
-              icon: { url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="30" height="40" viewBox="0 0 30 40"><path d="M15 2C8.37 2 3 7.27 3 13.75c0 5.62 8.8 17.1 13.2 23.1 4.4-6 13.2-17.48 13.2-23.1C29.4 7.27 24.03 2 17.4 2H15z" fill="#00B894" stroke="#fff" stroke-width="2"/><circle cx="15" cy="14" r="6" fill="#fff"/></svg>`),
-                scaledSize: new google.maps.Size(30, 40), anchor: new google.maps.Point(15, 40) },
-              animation: google.maps.Animation.DROP,
-            });
-            locText = r.text;
-            locStatus = 'পাওয়া গেছে';
-            if ($('#loc-text'))  $('#loc-text').textContent  = locText;
-            if ($('#loc-badge')) $('#loc-badge').textContent = locStatus;
-            showToast('অবস্থান: ' + r.text);
-          }
-        });
-      });
-    }, 200);
+      if (merged.length > 0) {
+        renderReportSearchResults(dropdown, merged.slice(0, 8));
+      } else {
+        dropdown.classList.remove('show');
+      }
+    }, 300);
   });
 
   clearBtn.addEventListener('click', () => {
@@ -1433,6 +1419,52 @@ function initReportSearch() {
 
   document.addEventListener('click', e => {
     if (!e.target.closest('.report-search-box')) dropdown.classList.remove('show');
+  });
+}
+
+function renderReportSearchResults(dropdown, results) {
+  if (!results.length) { dropdown.classList.remove('show'); return; }
+
+  dropdown.innerHTML = results.map(r => `
+    <div class="report-sd-item">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${r.nominatim ? '#6366f1' : 'var(--pri)'}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+      <div style="flex:1;min-width:0">
+        <div class="report-sd-name">${r.text}</div>
+        ${r.sub ? `<div class="report-sd-sub">${r.sub}</div>` : ''}
+      </div>
+      ${r.nominatim ? '<span class="report-sd-badge">SEARCH</span>' : ''}
+    </div>`).join('');
+
+  dropdown.classList.add('show');
+  dropdown.querySelectorAll('.report-sd-item').forEach((el, i) => {
+    el.addEventListener('click', () => {
+      const r = results[i];
+      const input = $('#report-search-input');
+      const clearBtn = $('#report-search-clear');
+      if (input) input.value = r.text;
+      if (clearBtn) clearBtn.style.display = 'flex';
+      dropdown.classList.remove('show');
+
+      // Navigate mini map to the location
+      if (miniMap && r.lat && r.lng) {
+        miniMap.setCenter({ lat: r.lat, lng: r.lng });
+        miniMap.setZoom(17);
+        if (miniPin) miniPin.setMap(null);
+        miniPin = new google.maps.Marker({
+          position: { lat: r.lat, lng: r.lng }, map: miniMap,
+          icon: { url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="30" height="40" viewBox="0 0 30 40"><path d="M15 2C8.37 2 3 7.27 3 13.75c0 5.62 8.8 17.1 13.2 23.1 4.4-6 13.2-17.48 13.2-23.1C29.4 7.27 24.03 2 17.4 2H15z" fill="#00B894" stroke="#fff" stroke-width="2"/><circle cx="15" cy="14" r="6" fill="#fff"/></svg>`),
+            scaledSize: new google.maps.Size(30, 40), anchor: new google.maps.Point(15, 40) },
+          animation: google.maps.Animation.DROP,
+        });
+        locText = r.text;
+        locStatus = 'পাওয়া গেছে';
+        if ($('#loc-text'))  $('#loc-text').textContent  = locText;
+        if ($('#loc-badge')) $('#loc-badge').textContent = locStatus;
+        showToast('অবস্থান: ' + r.text);
+      } else {
+        showToast('এই জায়গার কোনো লোকেশন পাওয়া যায়নি');
+      }
+    });
   });
 }
 

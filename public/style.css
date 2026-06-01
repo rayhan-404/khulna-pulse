@@ -834,6 +834,12 @@ img { display: block; max-width: 100%; }
 .report-sd-item:last-child  { border-radius: 0 0 var(--r-lg) var(--r-lg); }
 .report-sd-item:hover { background: var(--pri-lt); }
 .report-sd-name { font-weight: 600; color: var(--tx); font-size: 13px; }
+.report-sd-sub { font-size: 10px; color: var(--tx4); margin-top: 1px; }
+.report-sd-badge {
+  font-size: 8px; font-weight: 800; padding: 2px 8px;
+  border-radius: var(--r-full); background: #eef2ff; color: #6366f1;
+  margin-left: auto; letter-spacing: .6px; flex-shrink: 0;
+}
 
 .loc-card {
   background: var(--srf); border-radius: var(--r-lg);
