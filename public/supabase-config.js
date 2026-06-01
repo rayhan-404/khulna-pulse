@@ -64,8 +64,26 @@ const supabaseClient = {
     },
     signInWithOAuth: (opts) => {
       const redirectUrl = (opts && opts.options && opts.options.redirectTo) || window.location.href;
+      // Use implicit flow to get tokens directly in URL hash (no PKCE exchange needed)
       window.location.href = SUPABASE_URL + '/auth/v1/authorize?provider=' + opts.provider + '&redirect_to=' + encodeURIComponent(redirectUrl);
       return Promise.resolve({ data: null, error: null });
+    },
+    getUser: () => {
+      try {
+        const raw = localStorage.getItem('kp_supabase_session');
+        const session = raw ? JSON.parse(raw) : null;
+        if (session && session.access_token) {
+          // Fetch user info from Supabase /auth/v1/user endpoint
+          return fetch(SUPABASE_URL + '/auth/v1/user', {
+            headers: { 'Authorization': 'Bearer ' + session.access_token, 'apikey': SUPABASE_ANON_KEY }
+          }).then(r => r.json()).then(data => {
+            return { data: { user: data }, error: data.error || null };
+          }).catch(() => ({ data: { user: null }, error: { message: 'Failed to fetch user' } }));
+        }
+        return Promise.resolve({ data: { user: null }, error: null });
+      } catch(e) {
+        return Promise.resolve({ data: { user: null }, error: null });
+      }
     },
     signOut: () => {
       try { localStorage.removeItem('kp_supabase_session'); } catch(e) {}
@@ -163,30 +181,64 @@ supabaseClient.channel = function(name) {
   };
 };
 
-// Parse OAuth callback hash to extract session
-(function parseAuthHash() {
+// Parse OAuth callback to extract session (handles both hash fragment & query params)
+(function parseAuthCallback() {
   try {
     const hash = window.location.hash;
-    if (hash && hash.indexOf('access_token') !== -1) {
-      const params = new URLSearchParams(hash.substring(1));
-      const session = {
-        access_token: params.get('access_token'),
-        refresh_token: params.get('refresh_token'),
-        user: {},
-        email: '',
-        user_metadata: {},
-      };
-      try { session.user = JSON.parse(params.get('user') || '{}'); } catch(e) {}
-      session.email = session.user.email || '';
-      session.user_metadata = session.user.user_metadata || {};
-      session.user_metadata.avatar_url = session.user_metadata.avatar_url || '';
-      session.user_metadata.full_name = session.user_metadata.full_name || '';
-      localStorage.setItem('kp_supabase_session', JSON.stringify(session));
-      window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
-      console.log('[SB] Auth session saved from OAuth callback');
+    const search = window.location.search;
+    const hasHashToken = hash && hash.indexOf('access_token') !== -1;
+    const hasQueryToken = search && search.indexOf('access_token') !== -1;
+    const hasError = (hash && hash.indexOf('error') !== -1) || (search && search.indexOf('error') !== -1);
+
+    // Handle auth errors
+    if (hasError) {
+      const errParams = new URLSearchParams((hasError && hash.indexOf('error') !== -1 ? hash.substring(1) : search.substring(1)));
+      console.error('[SB] Auth error:', errParams.get('error'), errParams.get('error_description'));
+      window.history.replaceState({}, document.title, window.location.pathname);
+      return;
     }
+
+    // Check hash fragment first (#access_token=...), then query params (?access_token=...)
+    let tokenSource = hasHashToken ? hash.substring(1) : hasQueryToken ? search.substring(1) : null;
+    if (!tokenSource) return;
+
+    const params = new URLSearchParams(tokenSource);
+    const access_token = params.get('access_token');
+    const refresh_token = params.get('refresh_token');
+    if (!access_token) return;
+
+    // Build session object
+    const session = { access_token, refresh_token, user: {}, email: '', user_metadata: {} };
+
+    // Try to parse user from callback params (implicit flow)
+    try { session.user = JSON.parse(params.get('user') || '{}'); } catch(e) {}
+    session.email = session.user.email || '';
+    session.user_metadata = session.user.user_metadata || {};
+    session.user_metadata.avatar_url = session.user_metadata.avatar_url || '';
+    session.user_metadata.full_name = session.user_metadata.full_name || '';
+
+    localStorage.setItem('kp_supabase_session', JSON.stringify(session));
+    // Clean URL (remove tokens)
+    window.history.replaceState({}, document.title, window.location.pathname);
+    console.log('[SB] Auth session saved, email:', session.email);
+
+    // Fetch full user info from Supabase to ensure we have all metadata
+    fetch(SUPABASE_URL + '/auth/v1/user', {
+      headers: { 'Authorization': 'Bearer ' + access_token, 'apikey': SUPABASE_ANON_KEY }
+    }).then(r => r.json()).then(userData => {
+      if (userData && userData.email && !userData.error) {
+        session.user = userData;
+        session.email = userData.email;
+        session.user_metadata = userData.user_metadata || userData.raw_user_meta_data || {};
+        session.user_metadata.avatar_url = session.user_metadata.avatar_url || userData.avatar_url || '';
+        session.user_metadata.full_name = session.user_metadata.full_name || userData.full_name || userData.user_name || '';
+        localStorage.setItem('kp_supabase_session', JSON.stringify(session));
+        console.log('[SB] User info updated:', userData.email);
+      }
+    }).catch(() => {});
+
   } catch (e) {
-    console.error('[SB] Auth hash parse error:', e);
+    console.error('[SB] Auth callback parse error:', e);
   }
 })();
 
