@@ -491,6 +491,21 @@ function initPlacesServices() {
   }
 }
 
+// Known places with approximate coordinates for Khulna (MUST be before ALL_SEARCHABLE)
+const KNOWN_PLACES = {
+  'বয়রা মোড়': { lat: 22.8456, lng: 89.5403 },
+  'সোনাডাঙ্গা বাস স্ট্যান্ড': { lat: 22.8400, lng: 89.5310 },
+  'রূপসা ঘাট': { lat: 22.8200, lng: 89.5600 },
+  'KDA এভিনিউ': { lat: 22.8450, lng: 89.5380 },
+  'শিব বাড়ি মোড়': { lat: 22.8470, lng: 89.5370 },
+  'কাজীর দেউড়ি': { lat: 22.8430, lng: 89.5350 },
+  'খালিশপুর মোড়': { lat: 22.8500, lng: 89.5450 },
+  'ডাকবাংলো মোড়': { lat: 22.8480, lng: 89.5320 },
+  'আসাদগঞ্জ': { lat: 22.8300, lng: 89.5500 },
+  'হালিশহর': { lat: 22.8550, lng: 89.5250 },
+  'দৌলতপুর': { lat: 22.8600, lng: 89.5200 },
+};
+
 // ===== SEARCH AUTOCOMPLETE =====
 
 // All searchable places (Bengali + English aliases for broader search coverage)
@@ -562,21 +577,6 @@ function renderSearchResults(results) {
     });
   });
 }
-
-// Known places with approximate coordinates for Khulna
-const KNOWN_PLACES = {
-  'বয়রা মোড়': { lat: 22.8456, lng: 89.5403 },
-  'সোনাডাঙ্গা বাস স্ট্যান্ড': { lat: 22.8400, lng: 89.5310 },
-  'রূপসা ঘাট': { lat: 22.8200, lng: 89.5600 },
-  'KDA এভিনিউ': { lat: 22.8450, lng: 89.5380 },
-  'শিব বাড়ি মোড়': { lat: 22.8470, lng: 89.5370 },
-  'কাজীর দেউড়ি': { lat: 22.8430, lng: 89.5350 },
-  'খালিশপুর মোড়': { lat: 22.8500, lng: 89.5450 },
-  'ডাকবাংলো মোড়': { lat: 22.8480, lng: 89.5320 },
-  'আসাদগঞ্জ': { lat: 22.8300, lng: 89.5500 },
-  'হালিশহর': { lat: 22.8550, lng: 89.5250 },
-  'দৌলতপুর': { lat: 22.8600, lng: 89.5200 },
-};
 
 searchInput.addEventListener('input', () => {
   clearTimeout(searchDebounce);
