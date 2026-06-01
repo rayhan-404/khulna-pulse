@@ -1776,9 +1776,14 @@ function renderAdminDashboard() {
           </div>
           <div class="arc-info">
             <div class="arc-place">${r.place}</div>
-            <div class="arc-meta"><span>${r.cause}</span><span>${r.minsAgo}মি আগে</span><span>${r.reporter}</span></div>
+            <div class="arc-reporter">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              ${r.reporter}
+            </div>
+            <div class="arc-meta"><span>${r.cause}</span><span>${r.minsAgo}মি আগে</span></div>
           </div>
           <div class="arc-right">
+            <span class="st-pill ${r.flagged?'flg':'act'}">${r.flagged?'ফ্ল্যাগড':'সক্রিয়'}</span>
             <button class="arc-act ${r.flagged?'unflag':'flag'}" onclick="toggleFlag(${r.id})" title="${r.flagged?'আনফ্ল্যাগ':'ফ্ল্যাগ'}">
               ${r.flagged
                 ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
@@ -1787,7 +1792,6 @@ function renderAdminDashboard() {
             <button class="arc-act flag" onclick="deleteReport(${r.id})" title="ডিলিট" style="color:#EF4444;border-color:#EF444430">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
             </button>
-            <span class="st-pill ${r.flagged?'flg':'act'}">${r.flagged?'ফ্ল্যাগড':'সক্রিয়'}</span>
           </div>
         </div>`;
       }).join('')}
