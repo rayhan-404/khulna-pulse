@@ -1148,6 +1148,134 @@ img { display: block; max-width: 100%; }
 }
 
 /* ============================================================
+   ADMIN SETTINGS
+   ============================================================ */
+.settings-section {
+  display: flex; flex-direction: column; gap: 10px;
+}
+.settings-card {
+  background: var(--srf);
+  border-radius: var(--r-lg);
+  border: 1.5px solid var(--brd2);
+  box-shadow: var(--sh-card);
+  overflow: hidden;
+}
+.settings-card-header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 14px 0;
+}
+.settings-card-icon {
+  width: 38px; height: 38px; border-radius: var(--r-md);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.settings-card-info {
+  flex: 1; min-width: 0;
+}
+.settings-card-title {
+  font-size: 13px; font-weight: 800; color: var(--tx);
+}
+.settings-card-sub {
+  font-size: 10px; color: var(--tx4); font-weight: 600; margin-top: 1px;
+}
+.settings-active-badge {
+  font-size: 9px; font-weight: 800; padding: 3px 10px;
+  border-radius: var(--r-full); letter-spacing: .3px;
+}
+.settings-active-badge.active {
+  background: var(--sev-l-lt); color: var(--sev-l);
+  border: 1px solid rgba(var(--sev-l-rgb),.2);
+}
+.settings-active-badge.inactive {
+  background: var(--serf3, var(--srf3)); color: var(--tx4);
+  border: 1px solid var(--brd2);
+}
+.settings-current-key {
+  padding: 12px 14px 14px;
+  border-top: 1px solid var(--brd2);
+  margin-top: 10px;
+}
+.settings-key-label {
+  font-size: 9px; font-weight: 800; color: var(--tx4);
+  letter-spacing: 1px; text-transform: uppercase; margin-bottom: 6px;
+}
+.settings-key-value {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; font-weight: 700; color: var(--pri);
+  font-family: 'Courier New', monospace;
+  word-break: break-all;
+}
+.settings-copy-btn {
+  width: 30px; height: 30px; border-radius: var(--r-full);
+  display: flex; align-items: center; justify-content: center;
+  background: var(--pri-lt); color: var(--pri);
+  border: 1.5px solid rgba(var(--pri-rgb),.2);
+  flex-shrink: 0; cursor: pointer;
+  transition: all var(--dur-fast);
+}
+.settings-copy-btn:active { transform: scale(.9); background: rgba(var(--pri-rgb),.15); }
+.settings-form {
+  padding: 12px 14px 14px;
+  border-top: 1px solid var(--brd2);
+  margin-top: 10px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.settings-field {
+  display: flex; flex-direction: column; gap: 4px;
+}
+.settings-label {
+  font-size: 10px; font-weight: 700; color: var(--tx3);
+  letter-spacing: .3px;
+}
+.settings-input {
+  padding: 10px 14px; border-radius: var(--r-md);
+  border: 1.5px solid var(--brd);
+  background: var(--srf2);
+  font-size: 13px; font-weight: 600; color: var(--tx);
+  font-family: 'Courier New', monospace;
+  transition: all var(--dur);
+  outline: none;
+}
+.settings-input:focus {
+  border-color: var(--pri);
+  box-shadow: 0 0 0 3px rgba(var(--pri-rgb),.1);
+  background: var(--srf);
+}
+.settings-input::placeholder { color: var(--tx5); font-weight: 400; }
+.settings-key-list {
+  padding: 8px;
+  border-top: 1px solid var(--brd2);
+  margin-top: 10px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.api-key-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px; border-radius: var(--r-md);
+  background: var(--srf2);
+  border: 1.5px solid var(--brd2);
+  transition: all var(--dur-fast);
+}
+.api-key-item.active {
+  border-color: rgba(var(--pri-rgb),.25);
+  background: var(--pri-lt);
+}
+.api-key-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+}
+.api-key-dot.on { background: var(--sev-l); box-shadow: 0 0 6px rgba(var(--sev-l-rgb),.4); }
+.api-key-dot.off { background: var(--tx5); }
+.api-key-info { flex: 1; min-width: 0; }
+.api-key-name { font-size: 12px; font-weight: 700; color: var(--tx); }
+.api-key-val {
+  font-size: 11px; font-family: 'Courier New', monospace;
+  color: var(--tx3); font-weight: 600; margin-top: 2px;
+}
+.api-key-date { font-size: 9px; color: var(--tx4); font-weight: 600; margin-top: 2px; }
+.api-key-actions {
+  display: flex; gap: 4px; flex-shrink: 0; align-items: center;
+}
+
+/* ============================================================
    APP BUTTONS
    ============================================================ */
 .app-btn {

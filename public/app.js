@@ -3,6 +3,10 @@
 // ===== LIVE DATA (synced with Supabase in real-time) =====
 let hotspotsData = [];
 let reportsData = [];
+let apiKeysData = [];
+let googleMapsApiKey = null;
+let googleMapsLoaded = false;
+let adminSection = 'dashboard'; // 'dashboard' or 'settings'
 
 // SVG icons per cause (no emojis)
 const CAUSE_ICONS = {
@@ -161,6 +165,9 @@ async function initSupabase() {
       }
     }, 15000);
 
+    // Fetch API keys and load Google Maps dynamically
+    await fetchApiKeys();
+
     supabaseReady = true;
     console.log('Supabase sync active! Polling every 15s.');
   } catch (err) {
@@ -240,6 +247,104 @@ async function deleteReportInSupabase(id) {
     if (error) console.error('Delete error:', error.message);
   } catch (err) {
     console.error('Delete failed:', err);
+  }
+}
+
+// ===== API KEY MANAGEMENT =====
+const FALLBACK_MAP_KEY = 'AIzaSyAeMW2Ko4SqaY42gKNMAMYSFgnEuuFSeDQ';
+
+function loadGoogleMapsScript(apiKey) {
+  if (googleMapsLoaded || !apiKey) return;
+  googleMapsLoaded = true;
+  googleMapsApiKey = apiKey;
+  const script = document.createElement('script');
+  script.src = 'https://maps.googleapis.com/maps/api/js?key=' + apiKey + '&libraries=places&callback=Function.prototype';
+  script.async = true;
+  script.defer = true;
+  document.head.appendChild(script);
+  console.log('[Map] Google Maps loading with dynamic key from database...');
+}
+
+async function fetchApiKeys() {
+  if (typeof supabaseClient === 'undefined') {
+    console.warn('[API Keys] Supabase not available, using fallback key');
+    loadGoogleMapsScript(FALLBACK_MAP_KEY);
+    return;
+  }
+  try {
+    const { data, error } = await supabaseClient
+      .from('api_keys')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (!error && data) {
+      apiKeysData = data;
+      const active = data.find(k => k.is_active);
+      if (active) {
+        loadGoogleMapsScript(active.api_key);
+      } else {
+        console.warn('[API Keys] No active key found, using fallback');
+        loadGoogleMapsScript(FALLBACK_MAP_KEY);
+      }
+    } else {
+      console.warn('[API Keys] Fetch error or table not found, using fallback:', error?.message);
+      loadGoogleMapsScript(FALLBACK_MAP_KEY);
+    }
+  } catch (e) {
+    console.error('[API Keys] Fetch failed, using fallback:', e);
+    loadGoogleMapsScript(FALLBACK_MAP_KEY);
+  }
+}
+
+async function saveApiKeyToSupabase(keyName, apiKey) {
+  if (typeof supabaseClient === 'undefined') {
+    showToast('Supabase কনেক্ট নেই');
+    return false;
+  }
+  try {
+    // Deactivate all existing keys first
+    await supabaseClient.from('api_keys').update({ is_active: false }).neq('id', 0);
+    // Insert new key as active
+    const result = await supabaseClient.from('api_keys').insert({
+      key_name: keyName,
+      api_key: apiKey,
+      is_active: true,
+      created_at: Date.now()
+    });
+    if (result.error) {
+      showToast('API key সেভ করতে সমস্যা: ' + result.error.message);
+      return false;
+    }
+    // Reload keys
+    await fetchApiKeys();
+    showToast('API key সফলভাবে সেভ করা হয়েছে');
+    return true;
+  } catch (err) {
+    showToast('API key সেভ করতে সমস্যা');
+    return false;
+  }
+}
+
+async function deleteApiKeyFromSupabase(id) {
+  if (typeof supabaseClient === 'undefined') return;
+  try {
+    const { error } = await supabaseClient.from('api_keys').delete().eq('id', id);
+    if (error) console.error('Delete API key error:', error.message);
+  } catch (err) {
+    console.error('Delete API key failed:', err);
+  }
+}
+
+async function toggleActiveApiKey(id) {
+  if (typeof supabaseClient === 'undefined') return;
+  try {
+    // Deactivate all first
+    await supabaseClient.from('api_keys').update({ is_active: false }).neq('id', 0);
+    // Activate selected
+    await supabaseClient.from('api_keys').update({ is_active: true }).eq('id', id);
+    await fetchApiKeys();
+    showToast('API key সক্রিয় করা হয়েছে');
+  } catch (err) {
+    showToast('API key আপডেট করতে সমস্যা');
   }
 }
 
@@ -1722,6 +1827,27 @@ let adminTab = 'all';
 
 function renderAdminDashboard() {
   const body = $('#admin-body');
+
+  // Section tabs: Dashboard / Settings
+  const sectionTabs = `
+    <div style="display:flex;gap:6px;margin-bottom:4px">
+      <button class="filter-pill ${adminSection==='dashboard'?'active':''}" onclick="switchAdminSection('dashboard')" style="flex:1">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:-2px;margin-right:4px"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        ড্যাশবোর্ড
+      </button>
+      <button class="filter-pill ${adminSection==='settings'?'active':''}" onclick="switchAdminSection('settings')" style="flex:1">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:-2px;margin-right:4px"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        সেটিংস
+      </button>
+    </div>`;
+
+  if (adminSection === 'settings') {
+    body.innerHTML = sectionTabs + renderAdminSettings();
+    bindSettingsEvents();
+    return;
+  }
+
+  // === DASHBOARD (existing code) ===
   const activeCount = reportsData.filter(r => !r.deleted && !r.flagged).length;
   const flaggedCount = reportsData.filter(r => !r.deleted && r.flagged).length;
   const highCount = reportsData.filter(r => !r.deleted && r.sev === 'high').length;
@@ -1733,7 +1859,7 @@ function renderAdminDashboard() {
   const totalReports = reportsData.filter(r => !r.deleted).length;
   const totalUpvotes = reportsData.filter(r => !r.deleted).reduce((sum, r) => sum + (r.upvotes || 0), 0);
 
-  body.innerHTML = `
+  body.innerHTML = sectionTabs + `
     <div class="stats-row">
       <div class="stat-card"><div class="stat-val" style="color:var(--pri)">${totalUsers}</div><div class="stat-lbl">মোট ইউজার</div></div>
       <div class="stat-card"><div class="stat-val" style="color:var(--sev-l)">${totalReports}</div><div class="stat-lbl">মোট রিপোর্ট</div></div>
@@ -1813,6 +1939,160 @@ function renderAdminDashboard() {
   initAdminChart('bar');
 }
 
+// ===== ADMIN SECTION SWITCHING =====
+window.switchAdminSection = function(section) {
+  adminSection = section;
+  renderAdminDashboard();
+};
+
+function maskApiKey(key) {
+  if (!key || key.length < 12) return '****';
+  return key.substring(0, 8) + '....' + key.substring(key.length - 4);
+}
+
+function renderAdminSettings() {
+  const activeKey = apiKeysData.find(k => k.is_active);
+  const currentKeyDisplay = activeKey ? maskApiKey(activeKey.api_key) : 'কোনো সক্রিয় API key নেই';
+
+  return `
+    <div class="settings-section">
+      <div class="settings-card">
+        <div class="settings-card-header">
+          <div class="settings-card-icon" style="background:var(--pri-lt);color:var(--pri)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+          </div>
+          <div class="settings-card-info">
+            <div class="settings-card-title">Google Maps API</div>
+            <div class="settings-card-sub">ম্যাপ লোড করতে ব্যবহৃত API key</div>
+          </div>
+          <span class="settings-active-badge ${activeKey ? 'active' : 'inactive'}">${activeKey ? 'সক্রিয়' : 'নেই'}</span>
+        </div>
+        <div class="settings-current-key">
+          <div class="settings-key-label">বর্তমান API Key</div>
+          <div class="settings-key-value">
+            <span id="current-key-display">${currentKeyDisplay}</span>
+            ${activeKey ? `<button class="settings-copy-btn" id="btn-copy-key" title="কপি করুন">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            </button>` : ''}
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-card">
+        <div class="settings-card-header">
+          <div class="settings-card-icon" style="background:var(--info-lt);color:var(--info)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          </div>
+          <div class="settings-card-info">
+            <div class="settings-card-title">নতুন API Key যোগ করুন</div>
+            <div class="settings-card-sub">পুরনোটি ডিঅ্যাক্টিভেট হবে</div>
+          </div>
+        </div>
+        <div class="settings-form">
+          <div class="settings-field">
+            <label class="settings-label">Key এর নাম</label>
+            <input type="text" id="new-key-name" class="settings-input" placeholder="যেমন: Google Maps API v2" />
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">API Key</label>
+            <input type="text" id="new-key-value" class="settings-input" placeholder="AIzaSy..." />
+          </div>
+          <button class="app-btn primary full" id="btn-save-key" style="margin-top:6px">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            সেভ করুন
+          </button>
+        </div>
+      </div>
+
+      <div class="settings-card">
+        <div class="settings-card-header">
+          <div class="settings-card-icon" style="background:var(--sev-m-lt);color:var(--sev-m)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+          </div>
+          <div class="settings-card-info">
+            <div class="settings-card-title">সমস্ত API Keys</div>
+            <div class="settings-card-sub">${apiKeysData.length}টি key সংরক্ষিত</div>
+          </div>
+        </div>
+        <div class="settings-key-list" id="settings-key-list">
+          ${apiKeysData.length === 0 ? '<div class="empty-card">কোনো API key সংরক্ষিত নেই</div>' :
+            apiKeysData.map(k => `
+              <div class="api-key-item ${k.is_active ? 'active' : ''}">
+                <div class="api-key-dot ${k.is_active ? 'on' : 'off'}"></div>
+                <div class="api-key-info">
+                  <div class="api-key-name">${k.key_name}</div>
+                  <div class="api-key-val">${maskApiKey(k.api_key)}</div>
+                  <div class="api-key-date">${getMinsAgo(k.created_at) < 60 ? k.created_at + ' মি আগে যোগ' : new Date(parseTimestamp(k.created_at)).toLocaleDateString('bn-BD')}</div>
+                </div>
+                <div class="api-key-actions">
+                  ${!k.is_active ? `<button class="arc-act" onclick="activateApiKey(${k.id})" title="সক্রিয় করুন" style="color:var(--sev-l);border-color:rgba(var(--sev-l-rgb),.2)">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  </button>` : '<span class="st-pill act">সক্রিয়</span>'}
+                  <button class="arc-act del" onclick="removeApiKey(${k.id})" title="মুছুন" style="color:#EF4444;border-color:#EF444430">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                  </button>
+                </div>
+              </div>`).join('')}
+        </div>
+      </div>
+    </div>`;
+}
+
+function bindSettingsEvents() {
+  const saveBtn = document.getElementById('btn-save-key');
+  if (saveBtn) {
+    saveBtn.addEventListener('click', async () => {
+      const name = document.getElementById('new-key-name');
+      const value = document.getElementById('new-key-value');
+      if (!name || !value) return;
+      const keyName = name.value.trim() || 'Google Maps API';
+      const apiKey = value.value.trim();
+      if (!apiKey) {
+        showToast('API Key দিন');
+        return;
+      }
+      saveBtn.disabled = true;
+      saveBtn.innerHTML = 'সেভ হচ্ছে...';
+      const success = await saveApiKeyToSupabase(keyName, apiKey);
+      if (success) {
+        name.value = '';
+        value.value = '';
+        renderAdminDashboard();
+      }
+      saveBtn.disabled = false;
+      saveBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> সেভ করুন';
+    });
+  }
+
+  const copyBtn = document.getElementById('btn-copy-key');
+  if (copyBtn) {
+    copyBtn.addEventListener('click', () => {
+      const active = apiKeysData.find(k => k.is_active);
+      if (active && navigator.clipboard) {
+        navigator.clipboard.writeText(active.api_key).then(() => showToast('API Key কপি করা হয়েছে'));
+      }
+    });
+  }
+}
+
+window.activateApiKey = async function(id) {
+  await toggleActiveApiKey(id);
+  renderAdminDashboard();
+};
+
+window.removeApiKey = async function(id) {
+  if (!confirm('এই API key মুছে ফেলতে চান?')) return;
+  const key = apiKeysData.find(k => k.id === id);
+  if (key && key.is_active) {
+    showToast('সক্রিয় key মুছে ফেলা যাবে না! আগে অন্য key সক্রিয় করুন।');
+    return;
+  }
+  await deleteApiKeyFromSupabase(id);
+  apiKeysData = apiKeysData.filter(k => k.id !== id);
+  renderAdminDashboard();
+  showToast('API Key মুছে ফেলা হয়েছে');
+};
+
 window.setAdminTab = function(tab) { adminTab = tab; renderAdminDashboard(); };
 
 window.toggleFlag = function(id) {
@@ -1852,6 +2132,12 @@ function initAdminChart(type) {
 function waitForGoogleMaps() {
   if (window.google && google.maps) {
     initMap();
+  } else if (!googleMapsLoaded && !googleMapsApiKey) {
+    // Key not fetched yet, try fallback
+    setTimeout(() => {
+      if (!googleMapsLoaded) loadGoogleMapsScript(FALLBACK_MAP_KEY);
+    }, 3000);
+    setTimeout(waitForGoogleMaps, 100);
   } else {
     setTimeout(waitForGoogleMaps, 100);
   }
