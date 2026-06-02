@@ -33,7 +33,8 @@ const CAUSES = [
 
 const SEV_COLORS  = { high:'#EF4444', med:'#F59E0B', low:'#10B981' };
 const SEV_BG      = { high:'rgba(239,68,68,.1)', med:'rgba(245,158,11,.1)', low:'rgba(16,185,129,.1)' };
-const JAM_EXPIRY  = 2 * 60 * 60 * 1000;
+const DEFAULT_JAM_EXPIRY = 2 * 60 * 60 * 1000;
+const DURATION_SNAPS = [20, 30, 45, 60, 90, 120, 150, 180];
 const SUGGESTIONS = ['বয়রা মোড়','সোনাডাঙ্গা বাস স্ট্যান্ড','রূপসা ঘাট','KDA এভিনিউ','শিব বাড়ি মোড়','কাজীর দেউড়ি','খালিশপুর মোড়','ডাকবাংলো মোড়','আসাদগঞ্জ','হালিশহর','দৌলতপুর'];
 const upvoteState = {};
 
@@ -87,7 +88,8 @@ async function initSupabase() {
     if (hErr) {
       console.error('Supabase fetch hotspots error:', hErr.message);
     } else if (hotspots && hotspots.length > 0) {
-      hotspotsData = hotspots.map(d => ({ ...d, minsAgo: getMinsAgo(d.created_at) }));
+      hotspotsData = hotspots.map(d => ({ ...d, minsAgo: getMinsAgo(d.created_at) }))
+        .filter(d => !d.expires_at || parseTimestamp(d.expires_at) > Date.now());
       try { if (map) addMarkers(); } catch (mapErr) { console.warn('Map markers error:', mapErr.message); }
       renderSheetContent();
       console.log('Loaded', hotspotsData.length, 'hotspots from Supabase');
@@ -125,13 +127,24 @@ async function initSupabase() {
     setInterval(async () => {
       if (!supabaseReady) return;
       try {
+        // Auto-expire: mark reports as deleted when expired
+        const now = Date.now();
+        const expiredIds = hotspotsData
+          .filter(h => !h.deleted && h.expires_at && parseTimestamp(h.expires_at) < now)
+          .map(h => h.id);
+        for (const eid of expiredIds) {
+          await deleteReportInSupabase(eid);
+          console.log('[Auto-expire] Report', eid, 'expired and removed');
+        }
+
         const { data: hs } = await supabaseClient
           .from('reports')
           .select('*')
           .eq('deleted', false)
           .order('created_at', { ascending: false });
         if (hs) {
-          hotspotsData = hs.map(d => ({ ...d, minsAgo: getMinsAgo(d.created_at) }));
+          hotspotsData = hs.map(d => ({ ...d, minsAgo: getMinsAgo(d.created_at) }))
+            .filter(d => !d.expires_at || parseTimestamp(d.expires_at) > Date.now());
           try { if (map) addMarkers(); } catch(me) { console.warn('Polling markers error:', me.message); }
           renderSheetContent();
         }
@@ -254,12 +267,20 @@ function showToast(msg) {
   t._t = setTimeout(() => t.classList.remove('show'), 2800);
 }
 
-function countdownText(createdAt) {
-  const rem = JAM_EXPIRY - (Date.now() - createdAt);
+function getReportExpiry(h) {
+  if (h.expires_at) return parseTimestamp(h.expires_at);
+  if (h.duration_minutes) return parseTimestamp(h.created_at) + h.duration_minutes * 60000;
+  return parseTimestamp(h.created_at) + DEFAULT_JAM_EXPIRY;
+}
+
+function countdownText(createdAt, report) {
+  const expiry = report ? getReportExpiry(report) : parseTimestamp(createdAt) + DEFAULT_JAM_EXPIRY;
+  const total = report && report.duration_minutes ? report.duration_minutes * 60000 : DEFAULT_JAM_EXPIRY;
+  const rem = expiry - Date.now();
   if (rem <= 0) return { text:'মেয়াদোত্তীর্ণ', cls:'expired', pct:0 };
   const m = Math.floor(rem / 60000), s = Math.floor((rem % 60000) / 1000);
-  const cls = rem < JAM_EXPIRY * .25 ? 'urgent' : '';
-  return { text:`${m}মি ${s}সে`, cls, pct: Math.max(0, (rem / JAM_EXPIRY) * 100) };
+  const cls = rem < total * .25 ? 'urgent' : '';
+  return { text:`${m}মি ${s}সে`, cls, pct: Math.max(0, (rem / total) * 100) };
 }
 
 function sevColor(s) { return SEV_COLORS[s] || '#94A3B8'; }
@@ -411,7 +432,7 @@ function createMarkerSVG(sev, causeKey) {
 function createInfoWindowHTML(h) {
   const c = sevColor(h.sev);
   const bg = sevBg(h.sev);
-  const cd = countdownText(h.created_at);
+  const cd = countdownText(h.created_at, h);
   const caKey = (CAUSE_MAP[h.cause] || {}).key || 'jam';
   const svgPaths = getSvgPaths(caKey);
 
@@ -1185,7 +1206,13 @@ function renderReportsTab(c) {
 
 // ===== REPORT WIZARD =====
 const WIZARD_STEPS = ['ধরন', 'অবস্থান', 'বিবরণ'];
-let wizStep = 0, wizCause = 'jam', wizSev = 'med', wizName = '';
+let wizStep = 0, wizCause = 'jam', wizSev = 'med', wizName = '', wizDuration = 60;
+
+function formatDuration(mins) {
+  if (mins < 60) return mins + ' মিনিট';
+  const h = Math.floor(mins / 60), m = mins % 60;
+  return m > 0 ? h + ' ঘন্টা ' + m + ' মিনিট' : h + ' ঘন্টা';
+}
 let miniMap = null, miniPin = null;
 let locText = 'অবস্থান detect করা হচ্ছে...', locStatus = '';
 
@@ -1281,6 +1308,20 @@ function renderWizStep2(wc) {
           ${wizSev === s.key ? `<div class="s-check"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>` : ''}
         </div>`).join('')}
     </div>
+    <div class="step-title">জ্যাম কতক্ষণ থাকবে?</div>
+    <div class="duration-slider-wrap">
+      <div class="duration-display">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--pri)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <span class="duration-value" id="duration-value">${formatDuration(wizDuration)}</span>
+      </div>
+      <input type="range" id="duration-slider" class="duration-slider" min="20" max="180" step="5" value="${wizDuration}" />
+      <div class="duration-labels">
+        <span>20 মি</span>
+        <span>1 ঘন্টা</span>
+        <span>2 ঘন্টা</span>
+        <span>3 ঘন্টা</span>
+      </div>
+    </div>
     <div class="step-title">আপনার নাম <span class="opt-tag">ঐচ্ছিক</span></div>
     <div id="user-sign-in-area" style="margin-bottom:10px"></div>
     <div class="input-field">
@@ -1292,9 +1333,22 @@ function renderWizStep2(wc) {
       <button class="app-btn danger" onclick="submitReport()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg> জমা দিন</button>
     </div>
   </div>`;
+  // Bind duration slider
+  setTimeout(() => {
+    const slider = document.getElementById('duration-slider');
+    const display = document.getElementById('duration-value');
+    if (slider && display) {
+      slider.addEventListener('input', () => {
+        wizDuration = parseInt(slider.value);
+        display.textContent = formatDuration(wizDuration);
+        const pct = ((wizDuration - 20) / (180 - 20)) * 100;
+        slider.style.background = 'linear-gradient(to right, var(--pri) 0%, var(--pri) ' + pct + '%, var(--srf3) ' + pct + '%, var(--srf3) 100%)';
+      });
+      const pct = ((wizDuration - 20) / (180 - 20)) * 100;
+      slider.style.background = 'linear-gradient(to right, var(--pri) 0%, var(--pri) ' + pct + '%, var(--srf3) ' + pct + '%, var(--srf3) 100%)';
+    }
+  }, 100);
 }
-
-window.setSev = function(k) { wizSev = k; renderWizard(); };
 window.submitReport = function() {
   try {
     wizName = $('#wiz-name')?.value || '';
@@ -1311,6 +1365,8 @@ window.submitReport = function() {
       flagged: false,
       deleted: false,
       created_at: Date.now(),
+      duration_minutes: wizDuration,
+      expires_at: Date.now() + wizDuration * 60000,
     };
     // Save to Supabase in background (don't block UI)
     saveReportToSupabase(reportData);

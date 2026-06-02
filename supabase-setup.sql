@@ -11,8 +11,20 @@ CREATE TABLE IF NOT EXISTS reports (
   reporter TEXT NOT NULL DEFAULT 'Anonymous',
   flagged BOOLEAN DEFAULT FALSE,
   deleted BOOLEAN DEFAULT FALSE,
-  created_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT
+  created_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
+  duration_minutes INTEGER DEFAULT 60,
+  expires_at BIGINT
 );
+
+-- Add columns if they don't exist (safe for re-runs)
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'reports' AND column_name = 'duration_minutes') THEN
+    ALTER TABLE reports ADD COLUMN duration_minutes INTEGER DEFAULT 60;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'reports' AND column_name = 'expires_at') THEN
+    ALTER TABLE reports ADD COLUMN expires_at BIGINT;
+  END IF;
+END $$;
 
 -- Enable RLS
 ALTER TABLE reports ENABLE ROW LEVEL SECURITY;
